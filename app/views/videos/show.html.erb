@@ -1,5 +1,11 @@
 <% content_for :title, "#{@video.title} · ClipRank" %>
 
+<% if @ranking_run.present? && @preview_pending %>
+  <% content_for :head do %>
+    <meta http-equiv="refresh" content="10">
+  <% end %>
+<% end %>
+
 <main class="page-shell">
   <%= link_to "← Back to videos", videos_path, class: "back-link" %>
   <div class="page-heading">
@@ -40,9 +46,23 @@
         <span class="result-count"><%= @ranked_scores.size %> of <%= @ranking_run.candidate_scores.count %> shown</span>
       </div>
 
+      <% if @preview_pending %>
+        <div class="preview-refresh-notice" role="status">
+          <span aria-hidden="true" class="refresh-dot"></span>
+          <span>Preview rendering is in progress. This page refreshes automatically.</span>
+          <%= link_to "Refresh now", video_path(@video), class: "button button-small" %>
+        </div>
+      <% end %>
+
       <ol class="results-list">
         <% @ranked_scores.each do |score| %>
           <% clip = score.candidate_clip %>
+          <% artifacts = @preview_artifacts_by_candidate.fetch(clip.id, {}) %>
+          <% preview_artifact = artifacts["preview"] %>
+          <% thumbnail_artifact = artifacts["thumbnail"] %>
+          <% media_ready = preview_artifact&.ready? && preview_artifact.file.attached? && thumbnail_artifact&.ready? && thumbnail_artifact.file.attached? %>
+          <% artifact_failed = [preview_artifact, thumbnail_artifact].compact.find(&:failed?) %>
+          <% artifact_rendering = [preview_artifact, thumbnail_artifact].compact.any?(&:rendering?) %>
           <% explanation = score.explanations.find { |item| item.explanation_version == Explanations::Generator::VERSION } || score.explanations.max_by(&:created_at) %>
           <li class="result-card <%= "result-card-top-#{score.rank}" if score.rank <= 3 %>">
             <div class="result-rank" aria-label="Rank <%= score.rank %>"><span>#</span><%= score.rank %></div>
@@ -53,6 +73,39 @@
                   <h3><%= clip_timestamp(clip.start_ms) %>–<%= clip_timestamp(clip.end_ms) %></h3>
                 </div>
                 <div class="clip-score"><strong><%= score_percent(score.clip_score) %></strong><span>/ 100</span><small>ClipScore</small></div>
+              </div>
+
+              <div class="preview-panel" aria-label="Clip preview">
+                <% if media_ready %>
+                  <figure class="clip-media">
+                    <%= image_tag video_preview_artifact_path(@video, thumbnail_artifact), alt: "Thumbnail for clip from #{clip_timestamp(clip.start_ms)} to #{clip_timestamp(clip.end_ms)}", loading: "lazy", referrerpolicy: "no-referrer" %>
+                    <figcaption>Preview · <%= clip_timestamp(clip.start_ms) %>–<%= clip_timestamp(clip.end_ms) %></figcaption>
+                  </figure>
+                  <video controls preload="metadata" poster="<%= video_preview_artifact_path(@video, thumbnail_artifact) %>" referrerpolicy="no-referrer" aria-label="Preview of clip from <%= clip_timestamp(clip.start_ms) %> to <%= clip_timestamp(clip.end_ms) %>">
+                    <source src="<%= video_preview_artifact_path(@video, preview_artifact) %>" type="video/mp4">
+                    Your browser does not support video playback.
+                  </video>
+                <% elsif artifact_failed %>
+                  <div class="preview-placeholder preview-failed" role="alert">
+                    <strong>Preview unavailable</strong>
+                    <span><%= artifact_failed.error_message.presence || "We couldn't render this clip preview." %></span>
+                  </div>
+                <% elsif artifact_rendering %>
+                  <div class="preview-placeholder preview-rendering" role="status">
+                    <strong>Rendering preview…</strong>
+                    <span>Your clip is being prepared.</span>
+                  </div>
+                <% elsif @video.failed? %>
+                  <div class="preview-placeholder preview-failed" role="alert">
+                    <strong>Preview unavailable</strong>
+                    <span>The preview pipeline did not complete for this run.</span>
+                  </div>
+                <% else %>
+                  <div class="preview-placeholder preview-queued" role="status">
+                    <strong>Preview queued</strong>
+                    <span>ClipRank will render this clip shortly.</span>
+                  </div>
+                <% end %>
               </div>
 
               <p class="result-transcript"><%= clip.transcript %></p>

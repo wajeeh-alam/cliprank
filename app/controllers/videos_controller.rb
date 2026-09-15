@@ -50,6 +50,7 @@ class VideosController < ApplicationController
       .first
     @results_fallback = @ranking_run.present? && @processing_run.present? && @ranking_run.processing_run_id != @processing_run.id
     @ranked_scores = []
+    @preview_artifacts_by_candidate = {}
     return unless @ranking_run
 
     all_scores = @ranking_run.candidate_scores
@@ -59,12 +60,14 @@ class VideosController < ApplicationController
       explanation_version: Explanations::Generator::VERSION
     ).count
     @results_pending = all_scores.count.zero? || owned_scores.count != all_scores.count || explained_count != all_scores.count
+    @preview_pending = @ranking_run.present? && !@video.complete? && !@video.failed?
     return if @results_pending
 
     @ranked_scores = owned_scores
       .includes(:explanations, candidate_clip: :candidate_feature_sets)
       .order(:rank, :id)
       .limit(5)
+    load_preview_artifacts
   end
 
   private
@@ -86,5 +89,22 @@ class VideosController < ApplicationController
     return if ALLOWED_MEDIA_TYPES.include?(source_media.content_type.to_s)
 
     @video.errors.add(:source_media, "must be an MP4 or MOV video")
+  end
+
+  def load_preview_artifacts
+    @preview_artifacts_by_candidate = PreviewArtifact
+      .joins(:ranking_run, :candidate_clip)
+      .where(
+        ranking_run_id: @ranking_run.id,
+        candidate_clip_id: @ranked_scores.map(&:candidate_clip_id),
+        render_version: Previews::Renderer::VERSION
+      )
+      .where(ranking_runs: { video_id: @video.id }, candidate_clips: { video_id: @video.id })
+      .order(id: :desc)
+      .to_a
+      .each_with_object({}) do |artifact, grouped|
+        grouped[artifact.candidate_clip_id] ||= {}
+        grouped[artifact.candidate_clip_id][artifact.kind.to_s] ||= artifact
+      end
   end
 end

@@ -17,5 +17,7 @@ Rails.application.routes.draw do
   post "login", to: "sessions#create"
   delete "logout", to: "sessions#destroy", as: :logout
 
-  resources :videos, only: %i[index new create show]
+  resources :videos, only: %i[index new create show] do
+    resources :preview_artifacts, only: :show
+  end
 end
