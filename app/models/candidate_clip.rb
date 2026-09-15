@@ -8,6 +8,7 @@ class CandidateClip < ApplicationRecord
   has_many :candidate_scores, dependent: :restrict_with_exception
   has_many :ranking_runs, through: :candidate_scores
   has_many :exports, dependent: :restrict_with_exception
+  has_many :preview_artifacts, dependent: :restrict_with_exception
   has_one_attached :preview
   has_one_attached :thumbnail
 

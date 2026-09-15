@@ -12,6 +12,7 @@ module Pipeline
       "features_complete" => 65,
       "ranking" => 70,
       "ranking_complete" => 80,
+      "generating_previews" => 90,
       "complete" => 100
     }.freeze
 
@@ -139,6 +140,12 @@ module Pipeline
 
     def enqueue_rank_job!(video_id, processing_run_id)
       RankCandidatesJob.perform_later(video_id, processing_run_id)
+    end
+
+    # Called only after the ranking transaction has returned successfully.  The
+    # job itself remains idempotent, so duplicate delivery is safe.
+    def enqueue_preview_job!(video_id, processing_run_id, ranking_run_id)
+      RenderPreviewsJob.perform_later(video_id, processing_run_id, ranking_run_id)
     end
 
     def begin_ranking!(video_id, processing_run_id, config)

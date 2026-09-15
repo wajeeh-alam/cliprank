@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_060000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -154,6 +154,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'rendering'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text])", name: "exports_status_valid"
   end
 
+  create_table "preview_artifacts", force: :cascade do |t|
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "duration_ms", null: false
+    t.bigint "end_ms", null: false
+    t.string "error_code"
+    t.text "error_message"
+    t.string "kind", null: false
+    t.bigint "ranking_run_id", null: false
+    t.string "render_version", null: false
+    t.bigint "start_ms", null: false
+    t.string "status", default: "requested", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_clip_id"], name: "index_preview_artifacts_on_candidate_clip_id"
+    t.index ["ranking_run_id", "candidate_clip_id", "kind", "render_version"], name: "index_preview_artifacts_on_run_candidate_kind_version", unique: true
+    t.index ["ranking_run_id", "status"], name: "index_preview_artifacts_on_ranking_run_id_and_status"
+    t.index ["ranking_run_id"], name: "index_preview_artifacts_on_ranking_run_id"
+    t.check_constraint "kind::text = ANY (ARRAY['preview'::character varying, 'thumbnail'::character varying]::text[])", name: "preview_artifacts_kind_valid"
+    t.check_constraint "start_ms >= 0 AND start_ms < end_ms AND duration_ms = (end_ms - start_ms)", name: "preview_artifacts_timestamp_range"
+    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying, 'rendering'::character varying, 'ready'::character varying, 'failed'::character varying]::text[])", name: "preview_artifacts_status_valid"
+  end
+
   create_table "processing_runs", force: :cascade do |t|
     t.integer "attempt_count", default: 0, null: false
     t.datetime "completed_at"
@@ -259,6 +281,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
   add_foreign_key "explanations", "candidate_scores", on_delete: :restrict
   add_foreign_key "exports", "candidate_clips", on_delete: :restrict
   add_foreign_key "exports", "users", on_delete: :restrict
+  add_foreign_key "preview_artifacts", "candidate_clips", on_delete: :restrict
+  add_foreign_key "preview_artifacts", "ranking_runs", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
   add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict

@@ -19,6 +19,7 @@ class RankCandidatesJob < ApplicationJob
         rescue Explanations::Generator::Error => e
           Rails.logger.warn("Explanation backfill skipped for ranking run #{ranking_run_id}: #{e.message}")
         end
+        enqueue_preview_job!(video_id, processing_run_id, ranking_run_id) if run.reload.current_stage == "ranking_complete"
       end
       return
     end
@@ -79,7 +80,8 @@ class RankCandidatesJob < ApplicationJob
       candidate_ids: candidates.map { |candidate| candidate.fetch("candidate_id") },
       expected_weights: request_config.fetch("weights")
     )
-    mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
+    result = mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
+    enqueue_preview_job!(video.id, run.id, ranking_run.id) if result == :succeeded
   rescue Ml::Client::PermanentError => e
     record_ranking_terminal_error(video_id, processing_run_id, e)
     nil
