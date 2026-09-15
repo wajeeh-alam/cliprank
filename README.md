@@ -3,8 +3,8 @@
 ClipRank turns long-form MP4/MOV recordings into timestamped short-form clip
 candidates. Rails owns authentication, uploads, durable workflow state, and
 persisted results. A stateless FastAPI service performs transcription,
-candidate generation, and media feature extraction behind a versioned JSON
-contract.
+candidate generation, media feature extraction, and transparent ranking behind
+a versioned JSON contract.
 
 ## Integrated pipeline
 
@@ -17,6 +17,9 @@ Upload in Rails
   -> one ExtractCandidateFeaturesJob per candidate
   -> FFmpeg/OpenCV/transcript feature extraction
   -> concurrency-safe features_complete barrier
+  -> RankCandidatesJob + versioned FastAPI heuristic scorer
+  -> atomic RankingRun/CandidateScore persistence
+  -> ranking_complete barrier
 ```
 
 For every candidate, the service produces:
@@ -32,8 +35,9 @@ keys, row locks, and deterministic idempotency keys make job retries safe.
 Individual candidate failures remain isolated; the run advances only after all
 candidates are terminal and at least five valid feature sets exist by default.
 
-The current branch stops at `features_complete`. Transparent ranking, score
-explanations, Top-5 results, and preview/export rendering are the next stages.
+The current branch stops at `ranking_complete`. Deterministic score
+explanations, Top-5 results, and preview/export rendering are the next stages;
+no nonexistent preview job is enqueued at this checkpoint.
 
 See [docs/stage-1-architecture.md](docs/stage-1-architecture.md) for the full
 data model, contracts, and Phase 1 plan.
@@ -50,20 +54,36 @@ Replace the development-only placeholder passwords, token, and Rails secret in
 transcription also downloads the configured Whisper model into the persistent
 `whisper_models` volume.
 
+Conductor assigns this workspace ports beginning at `55050`. Set these
+non-secret values in `.env` before starting so it can run beside other
+workspaces:
+
+```dotenv
+COMPOSE_PROJECT_NAME=cliprank_davao
+WEB_PORT=55050
+ML_PORT=55051
+POSTGRES_PORT=55052
+S3_PORT=55053
+MINIO_CONSOLE_PORT=55054
+```
+
+Keep the passwords, Rails secret, and ML service token in the ignored `.env`
+file only. Never copy them into source, documentation, or CI configuration.
+
 Endpoints:
 
-- Rails: <http://localhost:3000>
-- FastAPI health: <http://localhost:8000/health>
-- MinIO API: <http://localhost:9000>
-- MinIO console: <http://localhost:9001>
+- Rails: <http://localhost:55050>
+- FastAPI health: <http://localhost:55051/health>
+- MinIO API: <http://localhost:55053>
+- MinIO console: <http://localhost:55054>
 
 Useful runtime commands:
 
 ```sh
 docker compose ps
 docker compose logs -f worker ml
-curl --fail http://localhost:8000/health
-curl --fail http://localhost:3000/up
+curl --fail http://localhost:55051/health
+curl --fail http://localhost:55050/up
 ```
 
 Stop containers while retaining database, media, and model data:
@@ -115,14 +135,17 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 40 tests, 170 assertions, zero failures;
-- Python: 21 tests, including real generated-media FFmpeg/OpenCV extraction;
-- RuboCop: zero offenses in the feature-extraction changes;
+- Rails: 46 tests, 202 assertions, zero failures;
+- Rails system smoke test: 1 test, 3 assertions, zero failures;
+- Python: 26 passed and one optional real-media test skipped when FFmpeg is unavailable;
+- RuboCop: zero offenses across 77 files;
 - Brakeman: zero security warnings.
+- Bundler and Importmap audits: no known vulnerable dependencies;
+- redacted Gitleaks scan: no leaks across the branch history.
 
 ## End-to-end smoke test
 
-1. Open <http://localhost:3000>, create an account, and upload a valid MP4/MOV
+1. Open <http://localhost:55050>, create an account, and upload a valid MP4/MOV
    containing spoken audio. A recording long enough to yield at least five
    coherent 15-60 second candidates is recommended.
 2. Follow processing in another terminal:
@@ -139,6 +162,7 @@ Current verified results:
    video = Video.order(:created_at).last
    run = video&.processing_runs&.order(:created_at)&.last
    features = video ? CandidateFeatureSet.joins(:candidate_clip).where(candidate_clips: { video_id: video.id }).count : 0
+   ranking = run&.ranking_runs&.order(:created_at)&.last
    puts({
      video_id: video&.id,
      video_status: video&.status,
@@ -146,15 +170,36 @@ Current verified results:
      stage: run&.current_stage,
      transcript_segments: video&.transcript_segments&.count,
      candidates: video&.candidate_clips&.count,
-     feature_sets: features
+     feature_sets: features,
+     ranking_status: ranking&.status,
+     scores: ranking&.candidate_scores&.count,
+     top_scores: ranking&.candidate_scores&.order(:rank)&.limit(5)&.pluck(:rank, :clip_score)
    }.to_json)
    '
    ```
 
 A successful run currently ends with `run_status: "running"`,
-`stage: "features_complete"`, timestamped transcript segments, generated
-candidates, and at least five feature sets. The video remains in
-`extracting_features` until the ranking checkpoint is implemented.
+`stage: "ranking_complete"`, a succeeded ranking run, and one immutable score
+per valid candidate. The video is marked `generating_previews` to expose the
+next intended stage, but preview rendering is not implemented yet.
+
+## How ranking analysis works
+
+The scorer is deterministic and explainable rather than a black-box virality
+prediction. It normalizes the 32 extracted signals into five aggregates and
+computes recommendation strength as:
+
+```text
+ClipScore = 100 × (0.35 semantic + 0.20 hook + 0.20 structural
+                   + 0.15 delivery + 0.10 visual)
+```
+
+The weights are frozen in `config/ranking.yml`; the score is bounded to
+`0..100`, rounded to two decimals, and ties are ordered by candidate ID. Every
+result preserves the scorer version, feature version, config snapshot, six
+display components, and normalized component details. Rails rejects malformed,
+cross-video, incomplete, duplicate, or non-contiguously ranked responses before
+opening one transaction to persist the complete ranking.
 
 ## How the service boundary works
 
