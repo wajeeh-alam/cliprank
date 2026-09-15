@@ -13,7 +13,11 @@ class ExtractCandidateFeaturesJob < ApplicationJob
     client ||= injected_client
     feature_version = ENV.fetch("ML_FEATURE_VERSION", "features-1")
     started = begin_candidate_feature!(video_id, processing_run_id, candidate_id, feature_version)
-    return if started == :skip
+    if started == :skip
+      run = ProcessingRun.find(processing_run_id)
+      enqueue_rank_job!(video_id, processing_run_id) if run.current_stage == "features_complete"
+      return
+    end
 
     run, video = load_processing_records(video_id, processing_run_id)
     candidate = CandidateClip.find(candidate_id)
@@ -60,9 +64,11 @@ class ExtractCandidateFeaturesJob < ApplicationJob
       candidate_id: candidate.id,
       feature_version: feature_version
     )
-    mark_feature_complete!(video.id, run.id, candidate.id, data)
+    barrier_state = mark_feature_complete!(video.id, run.id, candidate.id, data)
+    enqueue_rank_job!(video.id, run.id) if barrier_state == :features_complete
   rescue Ml::Client::PermanentError => e
-    record_candidate_terminal_error(video_id, processing_run_id, candidate_id, e)
+    barrier_state = record_candidate_terminal_error(video_id, processing_run_id, candidate_id, e)
+    enqueue_rank_job!(video_id, processing_run_id) if barrier_state == :features_complete
     nil
   rescue ActiveRecord::RecordInvalid => e
     error = Ml::Client::PermanentError.new(
@@ -70,7 +76,8 @@ class ExtractCandidateFeaturesJob < ApplicationJob
       code: "PERSISTENCE_ERROR",
       details: { "validation_errors" => e.record.errors.to_hash }
     )
-    record_candidate_terminal_error(video_id, processing_run_id, candidate_id, error)
+    barrier_state = record_candidate_terminal_error(video_id, processing_run_id, candidate_id, error)
+    enqueue_rank_job!(video_id, processing_run_id) if barrier_state == :features_complete
     nil
   rescue ActiveRecord::RecordNotUnique => e
     error = Ml::Client::PermanentError.new(
@@ -78,12 +85,14 @@ class ExtractCandidateFeaturesJob < ApplicationJob
       code: "DUPLICATE_RESULT",
       details: { "class" => e.class.name }
     )
-    record_candidate_terminal_error(video_id, processing_run_id, candidate_id, error)
+    barrier_state = record_candidate_terminal_error(video_id, processing_run_id, candidate_id, error)
+    enqueue_rank_job!(video_id, processing_run_id) if barrier_state == :features_complete
     nil
   rescue Ml::Client::Error => e
     raise if e.retryable
 
-    record_candidate_terminal_error(video_id, processing_run_id, candidate_id, e)
+    barrier_state = record_candidate_terminal_error(video_id, processing_run_id, candidate_id, e)
+    enqueue_rank_job!(video_id, processing_run_id) if barrier_state == :features_complete
     nil
   end
 end

@@ -133,6 +133,50 @@ class MlClientTest < ActiveSupport::TestCase
     assert_equal "/internal/api/v1/candidates/features", FakeHttp.requests.first.path
   end
 
+  test "posts rank requests and rejects non-contiguous or mismatched results" do
+    request_id = "req-rank"
+    idempotency_key = "video/1/run/2/rank"
+    data = {
+      "video_id" => "1",
+      "feature_version" => "features-1",
+      "scorer_version" => "heuristic-1",
+      "ranked_candidates" => [
+        {
+          "candidate_id" => "3",
+          "rank" => 1,
+          "clip_score" => 91.2,
+          "components" => {
+            "content_quality" => 94.0,
+            "hook" => 88.0,
+            "delivery" => 83.0,
+            "pacing" => 91.0,
+            "visual_engagement" => 78.0,
+            "standalone_clarity" => 96.0
+          },
+          "component_details" => {
+            "semantic" => { "weight" => 0.35, "normalized" => 0.94 },
+            "hook" => { "weight" => 0.20, "normalized" => 0.88 },
+            "structural" => { "weight" => 0.20, "normalized" => 0.91 },
+            "delivery" => { "weight" => 0.15, "normalized" => 0.83 },
+            "visual" => { "weight" => 0.10, "normalized" => 0.78 }
+          }
+        }
+      ]
+    }
+    FakeHttp.response = Response.new(
+      "200",
+      JSON.generate(contract_version: "1.0", request_id: request_id, idempotency_key: idempotency_key, data: data)
+    )
+
+    result = Ml::Client.new(base_url: "http://ml.test", service_token: "secret", http_class: FakeHttp).rank(
+      { "video_id" => "1", "feature_version" => "features-1", "scorer_version" => "heuristic-1", "candidates" => [ { "candidate_id" => "3" } ] },
+      request_id: request_id,
+      idempotency_key: idempotency_key
+    )
+
+    assert_equal 91.2, result.fetch("ranked_candidates").first.fetch("clip_score")
+  end
+
   test "wraps a non-object HTTP error response without raising a type error" do
     FakeHttp.response = Response.new("502", JSON.generate([ "upstream failure" ]))
 

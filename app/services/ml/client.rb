@@ -106,6 +106,20 @@ module Ml
     end
     alias extract_candidate_features extract_features
 
+    def rank(payload = nil, request_id: nil, idempotency_key: nil, **attributes)
+      data = payload || attributes
+      response = post("/internal/api/v1/rank", data, request_id: request_id, idempotency_key: idempotency_key)
+      validate_rank!(
+        response,
+        expected_video_id: data["video_id"] || data[:video_id],
+        expected_feature_version: data["feature_version"] || data[:feature_version],
+        expected_scorer_version: data["scorer_version"] || data[:scorer_version],
+        expected_candidate_ids: Array(data["candidates"] || data[:candidates]).each_with_object([]) do |candidate, ids|
+          ids << (candidate["candidate_id"] || candidate[:candidate_id]) if candidate.is_a?(Hash)
+        end
+      )
+    end
+
     private
 
     def post(path, data, request_id:, idempotency_key:)
@@ -339,6 +353,42 @@ module Ml
       data
     end
 
+    def validate_rank!(data, expected_video_id:, expected_feature_version:, expected_scorer_version:, expected_candidate_ids:)
+      require_data_keys!(data, %w[video_id feature_version scorer_version ranked_candidates])
+      reject_unknown_keys!(data, %w[video_id feature_version scorer_version ranked_candidates])
+      validate_string_match!(data["video_id"], expected_video_id, "video_id")
+      validate_string_match!(data["feature_version"], expected_feature_version, "feature_version")
+      validate_string_match!(data["scorer_version"], expected_scorer_version, "scorer_version")
+      candidates = data["ranked_candidates"]
+      raise ContractError.new("ranked_candidates must contain 1–40 items", code: "MALFORMED_RESPONSE") unless candidates.is_a?(Array) && candidates.length.between?(1, 40)
+
+      expected_ids = expected_candidate_ids.compact.map(&:to_s).sort
+      response_ids = []
+      ranks = []
+      candidates.each do |candidate|
+        require_data_keys!(candidate, %w[candidate_id rank clip_score components component_details])
+        reject_unknown_keys!(candidate, %w[candidate_id rank clip_score components component_details])
+        validate_non_empty_string!(candidate["candidate_id"], "ranked candidate_id")
+        validate_positive_integer!(candidate["rank"], "ranked rank")
+        validate_score!(candidate["clip_score"], "clip_score")
+        components = candidate["components"]
+        component_keys = %w[content_quality hook delivery pacing visual_engagement standalone_clarity]
+        require_data_keys!(components, component_keys)
+        reject_unknown_keys!(components, component_keys)
+        component_keys.each { |key| validate_score!(components[key], "components.#{key}") }
+        validate_component_details!(candidate["component_details"])
+        response_ids << candidate["candidate_id"].to_s
+        ranks << candidate["rank"]
+      end
+      if response_ids.uniq.length != response_ids.length || ranks.uniq.length != ranks.length || ranks.sort != (1..candidates.length).to_a
+        raise ContractError.new("ranked candidates must have unique contiguous ranks and ids", code: "MALFORMED_RESPONSE")
+      end
+      unless expected_ids.empty? || response_ids.sort == expected_ids
+        raise ContractError.new("ranked candidate ids do not match the request", code: "RESPONSE_MISMATCH")
+      end
+      data
+    end
+
     def require_data_keys!(object, keys)
       unless object.is_a?(Hash)
         raise ContractError.new("ML response item must be an object", code: "MALFORMED_RESPONSE")
@@ -387,6 +437,30 @@ module Ml
       return if value.is_a?(String) && allowed.include?(value)
 
       raise ContractError.new("#{name} contains an unsupported value", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_positive_integer!(value, name)
+      return if value.is_a?(Integer) && value >= 1
+
+      raise ContractError.new("#{name} must be a positive integer", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_component_details!(details)
+      keys = %w[semantic hook structural delivery visual]
+      unless details.is_a?(Hash) && details.keys.map(&:to_s).sort == keys.sort
+        raise ContractError.new("component_details must contain the five scoring components", code: "MALFORMED_RESPONSE")
+      end
+      details.each do |key, value|
+        unless key.is_a?(String) && value.is_a?(Hash) && value.keys.map(&:to_s).sort == %w[weight normalized].sort && value["weight"].is_a?(Numeric) && value["normalized"].is_a?(Numeric) && value["weight"].between?(0.0, 1.0) && value["normalized"].between?(0.0, 1.0)
+          raise ContractError.new("component_details values must contain unit weight and normalized values", code: "MALFORMED_RESPONSE")
+        end
+      end
+    end
+
+    def validate_score!(value, name)
+      return if value.is_a?(Numeric) && value.between?(0.0, 100.0)
+
+      raise ContractError.new("#{name} must be between 0 and 100", code: "MALFORMED_RESPONSE")
     end
 
     def validate_integer!(value, name)

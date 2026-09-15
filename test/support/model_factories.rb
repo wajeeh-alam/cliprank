@@ -71,6 +71,10 @@ module ModelFactories
   end
 
   def create_ranking_run(video: create_video, **attributes)
+    attributes[:processing_run] ||= video.processing_runs.create!(
+      pipeline_version: video.pipeline_version,
+      idempotency_key: "ranking/#{SecureRandom.uuid}"
+    )
     video.ranking_runs.create!(
       {
         feature_version: "features-test",

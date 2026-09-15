@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_023532) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -183,11 +183,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_023532) do
     t.string "error_code"
     t.text "error_message"
     t.string "feature_version", null: false
+    t.bigint "processing_run_id", null: false
     t.string "scorer_version", null: false
     t.datetime "started_at"
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
     t.bigint "video_id", null: false
+    t.index ["processing_run_id", "feature_version", "scorer_version"], name: "index_ranking_runs_on_processing_and_versions", unique: true
+    t.index ["processing_run_id"], name: "index_ranking_runs_on_processing_run_id"
     t.index ["video_id", "created_at"], name: "index_ranking_runs_on_video_id_and_created_at", order: { created_at: :desc }
     t.index ["video_id"], name: "index_ranking_runs_on_video_id"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "ranking_runs_config_object"
@@ -257,6 +260,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_023532) do
   add_foreign_key "exports", "candidate_clips", on_delete: :restrict
   add_foreign_key "exports", "users", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
+  add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict
   add_foreign_key "transcript_segments", "videos", on_delete: :restrict
   add_foreign_key "videos", "users", on_delete: :restrict

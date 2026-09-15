@@ -11,6 +11,7 @@ module Pipeline
       "extracting_features" => 60,
       "features_complete" => 65,
       "ranking" => 70,
+      "ranking_complete" => 80,
       "complete" => 100
     }.freeze
 
@@ -136,6 +137,114 @@ module Pipeline
       end
     end
 
+    def enqueue_rank_job!(video_id, processing_run_id)
+      RankCandidatesJob.perform_later(video_id, processing_run_id)
+    end
+
+    def begin_ranking!(video_id, processing_run_id, config)
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        raise ActiveRecord::RecordNotFound, "processing run does not belong to video" unless run.video_id.to_i == video_id.to_i
+
+        video = Video.lock.find(run.video_id)
+        return [ :skip, nil ] if run.failed? || run.succeeded?
+        return [ :skip, nil ] if stage_complete?(run, "ranking_complete")
+        return [ :skip, nil ] unless stage_complete?(run, "features_complete")
+
+        feature_version = config.fetch("feature_version")
+        scorer_version = config.fetch("scorer_version")
+        ranking_run = run.ranking_runs.lock.find_by(feature_version: feature_version, scorer_version: scorer_version)
+        if ranking_run&.succeeded?
+          run.update!(status: "running", current_stage: "ranking_complete")
+          video.update!(status: "generating_previews") unless video.failed? || video.complete?
+          return [ :skip, ranking_run.id ]
+        end
+
+        if ranking_run.nil?
+          ranking_run = video.ranking_runs.create!(
+            processing_run: run,
+            feature_version: feature_version,
+            scorer_version: scorer_version,
+            config: config.fetch("request_config").deep_dup,
+            status: "running",
+            started_at: Time.current
+          )
+        else
+          ranking_run.update!(status: "running", started_at: ranking_run.started_at || Time.current, error_code: nil, error_message: nil)
+        end
+        run.update!(
+          status: "running",
+          current_stage: "ranking",
+          started_at: run.started_at || Time.current,
+          attempt_count: run.attempt_count + 1,
+          error_code: nil,
+          error_message: nil
+        )
+        video.update!(status: "ranking", processing_error_code: nil, processing_error_message: nil, processing_error_details: {})
+        [ :started, ranking_run.id ]
+      end
+    end
+
+    def mark_ranking_complete!(video_id, processing_run_id, ranking_run_id, ranked_candidates)
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        return :already_terminal if run.failed? || run.succeeded? || stage_complete?(run, "ranking_complete")
+
+        video = Video.lock.find(run.video_id)
+        ranking_run = RankingRun.lock.find(ranking_run_id)
+        return :already_succeeded if ranking_run.succeeded?
+        raise ActiveRecord::RecordNotFound, "ranking run does not belong to video" unless ranking_run.video_id == video.id
+
+        candidate_ids = ranked_candidates.map { |candidate| candidate.fetch("candidate_id").to_i }
+        candidates = video.candidate_clips.where(id: candidate_ids).index_by(&:id)
+        raise Ml::Client::ContractError.new("Ranked candidate does not belong to video", code: "RESPONSE_MISMATCH") unless candidates.size == candidate_ids.uniq.size
+
+        ranked_candidates.each do |ranked|
+          candidate = candidates.fetch(ranked.fetch("candidate_id").to_i)
+          components = ranked.fetch("components")
+          candidate.candidate_scores.create!(
+            ranking_run: ranking_run,
+            rank: ranked.fetch("rank"),
+            clip_score: ranked.fetch("clip_score"),
+            content_quality: components.fetch("content_quality"),
+            hook: components.fetch("hook"),
+            delivery: components.fetch("delivery"),
+            pacing: components.fetch("pacing"),
+            visual_engagement: components.fetch("visual_engagement"),
+            standalone_clarity: components.fetch("standalone_clarity"),
+            component_details: ranked.fetch("component_details")
+          )
+          candidate.update!(status: "ranked")
+        end
+        ranking_run.update!(status: "succeeded", completed_at: Time.current, error_code: nil, error_message: nil)
+        run.update!(status: "running", current_stage: "ranking_complete", error_code: nil, error_message: nil)
+        video.update!(status: "generating_previews", processing_error_code: nil, processing_error_message: nil, processing_error_details: {})
+        :succeeded
+      end
+    end
+
+    def record_ranking_terminal_error(video_id, processing_run_id, error)
+      code = error.respond_to?(:code) && error.code.to_s != "" ? error.code.to_s : "ML_ERROR"
+      message = safe_error_message(error)
+      details = sanitize_error_details(error.respond_to?(:details) ? error.details : {})
+      details["provider_request_id"] = error.request_id.to_s if error.respond_to?(:request_id) && error.request_id
+      details["http_status"] = error.status if error.respond_to?(:status) && error.status
+
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        next unless run.video_id.to_i == video_id.to_i
+
+        video = Video.lock.find(run.video_id)
+        ranking_run = run.ranking_runs.lock.where(status: %w[pending running]).order(id: :desc).first
+        ranking_run&.update!(status: "failed", error_code: code, error_message: message, completed_at: Time.current)
+        run.update!(status: "failed", error_code: code, error_message: message, error_details: details, completed_at: Time.current)
+        video.update!(status: "failed", processing_error_code: code, processing_error_message: message, processing_error_details: details)
+      end
+      nil
+    rescue ActiveRecord::RecordNotFound
+      nil
+    end
+
     def begin_candidate_feature!(video_id, processing_run_id, candidate_id, feature_version)
       ProcessingRun.transaction do
         run = ProcessingRun.lock.find(processing_run_id)
@@ -159,12 +268,12 @@ module Pipeline
     def mark_feature_complete!(video_id, processing_run_id, candidate_id, feature_data)
       ProcessingRun.transaction do
         run = ProcessingRun.lock.find(processing_run_id)
-        return false if run.failed? || run.succeeded?
+        return :already_terminal if run.failed? || run.succeeded?
 
         video = Video.lock.find(run.video_id)
         candidate = CandidateClip.lock.find(candidate_id)
-        return false unless candidate.video_id == video.id
-        return false if candidate.candidate_feature_sets.exists?(feature_version: feature_data.fetch("feature_version"))
+        return :candidate_mismatch unless candidate.video_id == video.id
+        return :already_persisted if candidate.candidate_feature_sets.exists?(feature_version: feature_data.fetch("feature_version"))
 
         candidate.candidate_feature_sets.create!(
           feature_version: feature_data.fetch("feature_version"),
@@ -180,7 +289,6 @@ module Pipeline
         run.update!(status: "running", current_stage: "extracting_features")
         video.update!(status: "extracting_features") unless video.failed? || video.complete?
         advance_features_barrier!(run, video, candidate.generation_version, feature_data.fetch("feature_version"))
-        true
       end
     end
 
@@ -191,7 +299,7 @@ module Pipeline
       details["provider_request_id"] = error.request_id.to_s if error.respond_to?(:request_id) && error.request_id
       details["http_status"] = error.status if error.respond_to?(:status) && error.status
 
-      ProcessingRun.transaction do
+      barrier_state = ProcessingRun.transaction do
         run = ProcessingRun.lock.find(processing_run_id)
         next unless run.video_id.to_i == video_id.to_i
 
@@ -212,7 +320,7 @@ module Pipeline
         video.update!(processing_error_details: video_details)
         advance_features_barrier!(run, video, candidate.generation_version, ENV.fetch("ML_FEATURE_VERSION", "features-1"))
       end
-      nil
+      barrier_state
     rescue ActiveRecord::RecordNotFound
       nil
     end
@@ -246,9 +354,11 @@ module Pipeline
           processing_error_message: "Not enough candidates produced valid feature sets.",
           processing_error_details: details
         )
+        :failed
       else
         run.update!(status: "running", current_stage: "features_complete")
         video.update!(status: "extracting_features") unless video.failed? || video.complete?
+        :features_complete
       end
     end
 
@@ -428,6 +538,60 @@ module Pipeline
       end
       validate_feature_unit_float!(data["structural"]["sentence_completeness"], "structural.sentence_completeness")
       data
+    end
+
+    def validate_rank_data!(data, video_id:, feature_version:, scorer_version:, candidate_ids:, expected_weights: nil)
+      data = normalize_payload(data)
+      required = %w[video_id feature_version scorer_version ranked_candidates]
+      unless data.is_a?(Hash) && (required - data.keys).empty? && data["video_id"].to_s == video_id.to_s && data["feature_version"].to_s == feature_version.to_s && data["scorer_version"].to_s == scorer_version.to_s
+        raise Ml::Client::ContractError.new("The ranking response is invalid", code: "MALFORMED_RESPONSE")
+      end
+      raise Ml::Client::ContractError.new("The ranking response contains unknown fields", code: "MALFORMED_RESPONSE") unless (data.keys - required).empty?
+      ranked = data["ranked_candidates"]
+      unless ranked.is_a?(Array) && ranked.length.between?(1, 40)
+        raise Ml::Client::ContractError.new("The ranking response has no candidates", code: "MALFORMED_RESPONSE")
+      end
+
+      expected_ids = candidate_ids.map(&:to_s).sort
+      response_ids = []
+      ranks = []
+      ranked.each do |candidate|
+        required_candidate = %w[candidate_id rank clip_score components component_details]
+        unless candidate.is_a?(Hash) && (required_candidate - candidate.keys).empty? && (candidate.keys - required_candidate).empty?
+          raise Ml::Client::ContractError.new("The ranking response candidate is invalid", code: "MALFORMED_RESPONSE")
+        end
+        unless candidate["candidate_id"].is_a?(String) && !candidate["candidate_id"].empty? && candidate["rank"].is_a?(Integer) && candidate["rank"] >= 1 && candidate["clip_score"].is_a?(Numeric) && candidate["clip_score"].between?(0.0, 100.0)
+          raise Ml::Client::ContractError.new("The ranking response candidate has invalid rank or score", code: "MALFORMED_RESPONSE")
+        end
+        component_keys = %w[content_quality hook delivery pacing visual_engagement standalone_clarity]
+        components = candidate["components"]
+        unless components.is_a?(Hash) && (component_keys - components.keys).empty? && (components.keys - component_keys).empty? && component_keys.all? { |key| components[key].is_a?(Numeric) && components[key].between?(0.0, 100.0) }
+          raise Ml::Client::ContractError.new("The ranking response components are invalid", code: "MALFORMED_RESPONSE")
+        end
+        details = validate_component_details!(candidate["component_details"])
+        if expected_weights && details.any? { |key, value| value["weight"] != expected_weights[key] }
+          raise Ml::Client::ContractError.new("The ranking response weights do not match the frozen config", code: "RESPONSE_MISMATCH")
+        end
+        response_ids << candidate["candidate_id"]
+        ranks << candidate["rank"]
+      end
+      unless response_ids.uniq.length == response_ids.length && ranks.uniq.length == ranks.length && ranks.sort == (1..ranked.length).to_a && response_ids.map(&:to_s).sort == expected_ids
+        raise Ml::Client::ContractError.new("The ranking response candidates or ranks do not match the request", code: "RESPONSE_MISMATCH")
+      end
+      data
+    end
+
+    def validate_component_details!(details)
+      keys = %w[semantic hook structural delivery visual]
+      unless details.is_a?(Hash) && details.keys.map(&:to_s).sort == keys.sort
+        raise Ml::Client::ContractError.new("The ranking response component details are invalid", code: "MALFORMED_RESPONSE")
+      end
+      details.each do |key, value|
+        unless key.is_a?(String) && value.is_a?(Hash) && value.keys.map(&:to_s).sort == %w[weight normalized].sort && value["weight"].is_a?(Numeric) && value["normalized"].is_a?(Numeric) && value["weight"].between?(0.0, 1.0) && value["normalized"].between?(0.0, 1.0)
+          raise Ml::Client::ContractError.new("The ranking response component details are invalid", code: "MALFORMED_RESPONSE")
+        end
+      end
+      details
     end
 
     def validate_feature_object!(value, keys, name)

@@ -4,6 +4,7 @@ class ProcessingRun < ApplicationRecord
   enum :status, STATUSES.index_by(&:itself), validate: true
 
   belongs_to :video
+  has_many :ranking_runs, dependent: :restrict_with_exception
 
   validates :pipeline_version, :idempotency_key, presence: true
   validates :attempt_count, numericality: { only_integer: true, greater_than_or_equal_to: 0 }

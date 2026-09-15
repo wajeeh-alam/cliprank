@@ -1,0 +1,10 @@
+versions:
+  heuristic-1:
+    feature_version: features-1
+    weights:
+      semantic: 0.35
+      hook: 0.20
+      structural: 0.20
+      delivery: 0.15
+      visual: 0.10
+    output_scale: 100

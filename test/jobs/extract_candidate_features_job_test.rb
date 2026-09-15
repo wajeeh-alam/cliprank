@@ -102,6 +102,7 @@ class ExtractCandidateFeaturesJobTest < ActiveSupport::TestCase
 
       assert_equal 1, fake.calls.size
       assert_equal 1, candidate.reload.candidate_feature_sets.where(feature_version: "features-1").count
+      assert_equal 2, enqueued_jobs.count { |job| job[:job] == RankCandidatesJob }
     end
   end
 
