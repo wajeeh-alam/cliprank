@@ -1,0 +1,30 @@
+<% content_for :title, "#{@video.title} · ClipRank" %>
+
+<main class="page-shell">
+  <%= link_to "← Back to videos", videos_path, class: "back-link" %>
+  <div class="page-heading">
+    <div><p class="eyebrow">Video analysis</p><h1><%= @video.title %></h1><p class="lede">Uploaded <%= l(@video.created_at, format: :long) %></p></div>
+    <span class="status status-<%= @video.status %>"><%= @video.status.humanize %></span>
+  </div>
+  <section class="detail-card">
+    <h2>Processing status</h2>
+    <p class="status-message">
+      <% if @video.failed? %>
+        We couldn't finish this analysis.
+      <% elsif @video.complete? %>
+        Your analysis is ready.
+      <% else %>
+        ClipRank is working through your recording. This page is safe to refresh.
+      <% end %>
+    </p>
+    <% safe_error = @video.processing_error_message.presence || @processing_run&.error_message.presence %>
+    <% if safe_error.present? %><div class="error-summary" role="alert"><%= safe_error %></div><% end %>
+    <% if @processing_run.present? %>
+      <dl class="metadata">
+        <div><dt>Run status</dt><dd><%= @processing_run.status.humanize %></dd></div>
+        <div><dt>Pipeline</dt><dd><%= @processing_run.pipeline_version %></dd></div>
+        <% if @processing_run.current_stage.present? %><div><dt>Current stage</dt><dd><%= @processing_run.current_stage.humanize %></dd></div><% end %>
+      </dl>
+    <% end %>
+  </section>
+</main>

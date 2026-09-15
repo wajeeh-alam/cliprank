@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rails refuses to boot when a previous interrupted container left this file.
+rm -f /rails/tmp/pids/server.pid
+
+exec "$@"

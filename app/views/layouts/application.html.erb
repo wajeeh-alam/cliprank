@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title><%= content_for(:title) || "Clip Rank" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="Clip Rank">
+    <meta name="mobile-web-app-capable" content="yes">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%= yield :head %>
+
+    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
+    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
+
+    <link rel="icon" href="/icon.png" type="image/png">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon.png">
+
+    <%# Includes all stylesheet files in app/assets/stylesheets %>
+    <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
+  </head>
+
+  <body>
+    <header class="site-header">
+      <%= link_to "ClipRank", root_path, class: "brand" %>
+      <nav>
+        <% if logged_in? %>
+          <%= link_to "My videos", videos_path %>
+          <%= link_to "Upload video", new_video_path %>
+          <%= button_to "Log out", logout_path, method: :delete, class: "link-button" %>
+        <% else %>
+          <%= link_to "Log in", login_path %>
+          <%= link_to "Create account", signup_path, class: "button button-small" %>
+        <% end %>
+      </nav>
+    </header>
+
+    <% flash.each do |type, message| %>
+      <div class="flash flash-<%= type %>" role="<%= type.to_s == "alert" ? "alert" : "status" %>"><%= message %></div>
+    <% end %>
+
+    <%= yield %>
+  </body>
+</html>

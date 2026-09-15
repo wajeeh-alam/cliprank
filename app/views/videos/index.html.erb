@@ -1,0 +1,28 @@
+<% content_for :title, "My videos · ClipRank" %>
+
+<main class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Your workspace</p>
+      <h1>My videos</h1>
+      <p class="lede">Upload a recording to find its most compelling moments.</p>
+    </div>
+    <%= link_to "Upload a video", new_video_path, class: "button" %>
+  </div>
+  <% if @videos.empty? %>
+    <section class="empty-state">
+      <h2>Your first clip is waiting</h2>
+      <p>Start with an MP4 or MOV recording. ClipRank will process it in the background.</p>
+      <%= link_to "Upload a video", new_video_path, class: "button" %>
+    </section>
+  <% else %>
+    <section class="video-list" aria-label="Uploaded videos">
+      <% @videos.each do |video| %>
+        <%= link_to video_path(video), class: "video-card" do %>
+          <div><h2><%= video.title %></h2><p><%= l(video.created_at, format: :long) %></p></div>
+          <span class="status status-<%= video.status %>"><%= video.status.humanize %></span>
+        <% end %>
+      <% end %>
+    </section>
+  <% end %>
+</main>
