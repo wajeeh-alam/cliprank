@@ -9,6 +9,7 @@ module Pipeline
       "generating_candidates" => 40,
       "candidates_complete" => 50,
       "extracting_features" => 60,
+      "features_complete" => 65,
       "ranking" => 70,
       "complete" => 100
     }.freeze
@@ -19,7 +20,7 @@ module Pipeline
       run = ProcessingRun.find(processing_run_id)
       raise ActiveRecord::RecordNotFound, "processing run does not belong to video" unless run.video_id.to_i == video_id.to_i
 
-      [run, run.video]
+      [ run, run.video ]
     end
 
     def stage_complete?(run, stage)
@@ -129,6 +130,128 @@ module Pipeline
       end
     end
 
+    def enqueue_feature_jobs!(video_id, processing_run_id, generation_version)
+      CandidateClip.where(video_id: video_id, generation_version: generation_version).order(:sequence, :id).pluck(:id).each do |candidate_id|
+        ExtractCandidateFeaturesJob.perform_later(video_id, processing_run_id, candidate_id)
+      end
+    end
+
+    def begin_candidate_feature!(video_id, processing_run_id, candidate_id, feature_version)
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        raise ActiveRecord::RecordNotFound, "processing run does not belong to video" unless run.video_id.to_i == video_id.to_i
+
+        video = Video.lock.find(run.video_id)
+        candidate = CandidateClip.lock.find(candidate_id)
+        raise ActiveRecord::RecordNotFound, "candidate clip does not belong to video" unless candidate.video_id == video.id
+        return :skip if run.failed? || run.succeeded?
+        return :skip if candidate.candidate_feature_sets.exists?(feature_version: feature_version)
+        return :skip unless %w[pending analyzing].include?(candidate.status)
+        return :skip if STAGE_ORDER.fetch(run.current_stage.to_s, -1) > STAGE_ORDER.fetch("extracting_features")
+
+        run.update!(status: "running", current_stage: "extracting_features", started_at: run.started_at || Time.current)
+        video.update!(status: "extracting_features") unless video.failed? || video.complete?
+        candidate.update!(status: "analyzing", processing_error_code: nil, processing_error_message: nil)
+        :started
+      end
+    end
+
+    def mark_feature_complete!(video_id, processing_run_id, candidate_id, feature_data)
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        return false if run.failed? || run.succeeded?
+
+        video = Video.lock.find(run.video_id)
+        candidate = CandidateClip.lock.find(candidate_id)
+        return false unless candidate.video_id == video.id
+        return false if candidate.candidate_feature_sets.exists?(feature_version: feature_data.fetch("feature_version"))
+
+        candidate.candidate_feature_sets.create!(
+          feature_version: feature_data.fetch("feature_version"),
+          model_version: feature_data.fetch("model_version"),
+          prompt_version: feature_data["prompt_version"],
+          semantic_features: feature_data.fetch("semantic"),
+          audio_features: feature_data.fetch("audio"),
+          visual_features: feature_data.fetch("visual"),
+          structural_features: feature_data.fetch("structural"),
+          raw_metadata: { "capability_warnings" => feature_data.fetch("capability_warnings") }
+        )
+        candidate.update!(status: "analyzing", processing_error_code: nil, processing_error_message: nil)
+        run.update!(status: "running", current_stage: "extracting_features")
+        video.update!(status: "extracting_features") unless video.failed? || video.complete?
+        advance_features_barrier!(run, video, candidate.generation_version, feature_data.fetch("feature_version"))
+        true
+      end
+    end
+
+    def record_candidate_terminal_error(video_id, processing_run_id, candidate_id, error)
+      code = error.respond_to?(:code) && error.code.to_s != "" ? error.code.to_s : "ML_ERROR"
+      message = safe_error_message(error)
+      details = sanitize_error_details(error.respond_to?(:details) ? error.details : {})
+      details["provider_request_id"] = error.request_id.to_s if error.respond_to?(:request_id) && error.request_id
+      details["http_status"] = error.status if error.respond_to?(:status) && error.status
+
+      ProcessingRun.transaction do
+        run = ProcessingRun.lock.find(processing_run_id)
+        next unless run.video_id.to_i == video_id.to_i
+
+        video = Video.lock.find(run.video_id)
+        candidate = CandidateClip.lock.find(candidate_id)
+        next unless candidate.video_id == video.id
+
+        candidate.update!(status: "failed", processing_error_code: code, processing_error_message: message)
+        failure = { "candidate_id" => candidate.id.to_s, "code" => code, "message" => message, "details" => details }
+        run_details = run.error_details.is_a?(Hash) ? run.error_details.deep_dup : {}
+        failures = Array(run_details["feature_failures"]).select { |entry| entry.is_a?(Hash) && entry["candidate_id"].to_s != candidate.id.to_s }
+        run_details["feature_failures"] = (failures + [ failure ]).last(100)
+        run.update!(error_details: run_details)
+
+        video_details = video.processing_error_details.is_a?(Hash) ? video.processing_error_details.deep_dup : {}
+        video_failures = Array(video_details["feature_failures"]).select { |entry| entry.is_a?(Hash) && entry["candidate_id"].to_s != candidate.id.to_s }
+        video_details["feature_failures"] = (video_failures + [ failure ]).last(100)
+        video.update!(processing_error_details: video_details)
+        advance_features_barrier!(run, video, candidate.generation_version, ENV.fetch("ML_FEATURE_VERSION", "features-1"))
+      end
+      nil
+    rescue ActiveRecord::RecordNotFound
+      nil
+    end
+
+    def advance_features_barrier!(run, video, generation_version, feature_version)
+      return if run.failed? || run.succeeded?
+
+      candidates = CandidateClip.where(video_id: video.id, generation_version: generation_version).to_a
+      return if candidates.empty?
+      return unless candidates.all? do |candidate|
+        candidate.status == "failed" || candidate.candidate_feature_sets.exists?(feature_version: feature_version)
+      end
+
+      valid_count = candidates.count { |candidate| candidate.candidate_feature_sets.exists?(feature_version: feature_version) }
+      minimum = [ ENV.fetch("ML_MIN_VALID_CANDIDATES", "5").to_i, 1 ].max
+      if valid_count < minimum
+        details = run.error_details.is_a?(Hash) ? run.error_details.deep_dup : {}
+        details["valid_candidate_count"] = valid_count
+        details["required_candidate_count"] = minimum
+        run.update!(
+          status: "failed",
+          current_stage: "extracting_features",
+          error_code: "INSUFFICIENT_VALID_CANDIDATES",
+          error_message: "Not enough candidates produced valid feature sets.",
+          error_details: details,
+          completed_at: Time.current
+        )
+        video.update!(
+          status: "failed",
+          processing_error_code: "INSUFFICIENT_VALID_CANDIDATES",
+          processing_error_message: "Not enough candidates produced valid feature sets.",
+          processing_error_details: details
+        )
+      else
+        run.update!(status: "running", current_stage: "features_complete")
+        video.update!(status: "extracting_features") unless video.failed? || video.complete?
+      end
+    end
+
     def record_terminal_error(video_id, processing_run_id, error)
       code = error.respond_to?(:code) && error.code.to_s != "" ? error.code.to_s : "ML_ERROR"
       message = safe_error_message(error)
@@ -205,7 +328,7 @@ module Pipeline
         unless segment["text"].is_a?(String) && !segment["text"].strip.empty? && segment["words"].is_a?(Array)
           raise Ml::Client::ContractError.new("The transcription response has invalid text or words", code: "MALFORMED_RESPONSE")
         end
-        unless [true, false].include?(segment["is_sentence_boundary_start"]) && [true, false].include?(segment["is_sentence_boundary_end"])
+        unless [ true, false ].include?(segment["is_sentence_boundary_start"]) && [ true, false ].include?(segment["is_sentence_boundary_end"])
           raise Ml::Client::ContractError.new("The transcription response has invalid boundary flags", code: "MALFORMED_RESPONSE")
         end
         if sequences.key?(segment["sequence"]) || (previous_end && segment["start_ms"] < previous_end)
@@ -248,7 +371,7 @@ module Pipeline
         unless candidate["transcript"].is_a?(String) && !candidate["transcript"].strip.empty? && candidate["source_segment_sequences"].is_a?(Array) && !candidate["source_segment_sequences"].empty? && candidate["source_segment_sequences"].all? { |item| item.is_a?(Integer) && item >= 0 }
           raise Ml::Client::ContractError.new("The candidate response has invalid transcript metadata", code: "MALFORMED_RESPONSE")
         end
-        key = [candidate["start_ms"], candidate["end_ms"]]
+        key = [ candidate["start_ms"], candidate["end_ms"] ]
         if sequences.key?(candidate["sequence"]) || boundaries.key?(key)
           raise Ml::Client::ContractError.new("Candidate sequences and boundaries must be unique", code: "DUPLICATE_CANDIDATE")
         end
@@ -256,6 +379,91 @@ module Pipeline
         boundaries[key] = true
       end
       data
+    end
+
+    def validate_feature_data!(data, video_id:, candidate_id:, feature_version:)
+      data = normalize_payload(data)
+      required = %w[video_id candidate_id feature_version model_version prompt_version semantic audio visual structural capability_warnings]
+      unless data.is_a?(Hash) && (required - data.keys).empty? && data["video_id"].to_s == video_id.to_s && data["candidate_id"].to_s == candidate_id.to_s && data["feature_version"].to_s == feature_version.to_s
+        raise Ml::Client::ContractError.new("The feature response is invalid", code: "MALFORMED_RESPONSE")
+      end
+      unless (data.keys - required).empty?
+        raise Ml::Client::ContractError.new("The feature response contains unknown fields", code: "MALFORMED_RESPONSE")
+      end
+      unless data["model_version"].is_a?(String) && !data["model_version"].empty? && (data["prompt_version"].nil? || (data["prompt_version"].is_a?(String) && !data["prompt_version"].empty?))
+        raise Ml::Client::ContractError.new("The feature response has invalid model provenance", code: "MALFORMED_RESPONSE")
+      end
+      unless data["capability_warnings"].is_a?(Array) && data["capability_warnings"].all? { |warning| warning.is_a?(String) && !warning.empty? }
+        raise Ml::Client::ContractError.new("The feature response has invalid capability warnings", code: "MALFORMED_RESPONSE")
+      end
+
+      semantic_keys = %w[hook_strength standalone_clarity information_density novelty emotional_intensity quotability payoff_strength story_completeness technical_depth call_to_action_presence topic content_type hook_type]
+      validate_feature_object!(data["semantic"], semantic_keys, "semantic")
+      %w[hook_strength standalone_clarity information_density novelty emotional_intensity quotability payoff_strength story_completeness technical_depth call_to_action_presence].each do |key|
+        validate_feature_unit_float!(data["semantic"][key], "semantic.#{key}")
+      end
+      validate_feature_string!(data["semantic"]["topic"], "semantic.topic")
+      validate_feature_enum!(data["semantic"]["content_type"], %w[story tutorial opinion project_demo career_advice coding_tip educational announcement other], "semantic.content_type")
+      validate_feature_enum!(data["semantic"]["hook_type"], %w[question contrarian surprising_claim personal_story result_first problem curiosity_gap none], "semantic.hook_type")
+
+      audio_keys = %w[words_per_minute average_audio_energy energy_variance energy_change_at_hook silence_ratio longest_pause_ms pause_frequency]
+      validate_feature_object!(data["audio"], audio_keys, "audio")
+      validate_feature_number!(data["audio"]["words_per_minute"], "audio.words_per_minute")
+      %w[average_audio_energy energy_variance energy_change_at_hook silence_ratio pause_frequency].each do |key|
+        validate_feature_unit_float!(data["audio"][key], "audio.#{key}")
+      end
+      validate_feature_integer!(data["audio"]["longest_pause_ms"], "audio.longest_pause_ms")
+
+      visual_keys = %w[face_presence_ratio visual_motion scene_change_rate screen_recording_ratio camera_change_frequency sample_count]
+      validate_feature_object!(data["visual"], visual_keys, "visual")
+      %w[face_presence_ratio visual_motion scene_change_rate screen_recording_ratio camera_change_frequency].each do |key|
+        validate_feature_unit_float!(data["visual"][key], "visual.#{key}")
+      end
+      validate_feature_integer!(data["visual"]["sample_count"], "visual.sample_count")
+
+      structural_keys = %w[time_to_main_point_ms intro_length_ms sentence_completeness hook_to_payoff_time_ms dead_air_start_ms dead_air_end_ms]
+      validate_feature_object!(data["structural"], structural_keys, "structural")
+      %w[time_to_main_point_ms intro_length_ms hook_to_payoff_time_ms dead_air_start_ms dead_air_end_ms].each do |key|
+        validate_feature_integer!(data["structural"][key], "structural.#{key}")
+      end
+      validate_feature_unit_float!(data["structural"]["sentence_completeness"], "structural.sentence_completeness")
+      data
+    end
+
+    def validate_feature_object!(value, keys, name)
+      unless value.is_a?(Hash) && (keys - value.keys).empty? && (value.keys - keys).empty?
+        raise Ml::Client::ContractError.new("#{name} feature object is invalid", code: "MALFORMED_RESPONSE")
+      end
+    end
+
+    def validate_feature_string!(value, name)
+      return if value.is_a?(String) && !value.empty?
+
+      raise Ml::Client::ContractError.new("#{name} must be a non-empty string", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_feature_number!(value, name)
+      return if value.is_a?(Numeric) && value >= 0
+
+      raise Ml::Client::ContractError.new("#{name} must be a non-negative number", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_feature_integer!(value, name)
+      return if value.is_a?(Integer) && value >= 0
+
+      raise Ml::Client::ContractError.new("#{name} must be a non-negative integer", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_feature_unit_float!(value, name)
+      return if value.is_a?(Numeric) && value.between?(0.0, 1.0)
+
+      raise Ml::Client::ContractError.new("#{name} must be between 0 and 1", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_feature_enum!(value, allowed, name)
+      return if value.is_a?(String) && allowed.include?(value)
+
+      raise Ml::Client::ContractError.new("#{name} contains an unsupported value", code: "MALFORMED_RESPONSE")
     end
 
     def sanitize_error_details(value)

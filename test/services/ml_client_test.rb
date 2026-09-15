@@ -109,8 +109,32 @@ class MlClientTest < ActiveSupport::TestCase
     end
   end
 
+  test "posts candidate feature requests and validates normalized feature families" do
+    request_id = "req-features"
+    idempotency_key = "video/1/run/2/features/candidate/3"
+    data = feature_data
+    FakeHttp.response = Response.new(
+      "200",
+      JSON.generate(
+        contract_version: "1.0",
+        request_id: request_id,
+        idempotency_key: idempotency_key,
+        data: data
+      )
+    )
+
+    result = Ml::Client.new(base_url: "http://ml.test", service_token: "secret", http_class: FakeHttp).extract_features(
+      { "video_id" => "1", "candidate_id" => "3", "feature_version" => "features-1" },
+      request_id: request_id,
+      idempotency_key: idempotency_key
+    )
+
+    assert_equal "baseline-1", result.fetch("model_version")
+    assert_equal "/internal/api/v1/candidates/features", FakeHttp.requests.first.path
+  end
+
   test "wraps a non-object HTTP error response without raising a type error" do
-    FakeHttp.response = Response.new("502", JSON.generate(["upstream failure"]))
+    FakeHttp.response = Response.new("502", JSON.generate([ "upstream failure" ]))
 
     error = assert_raises(Ml::Client::HttpError) do
       Ml::Client.new(base_url: "http://ml.test", service_token: "secret", http_class: FakeHttp).generate_candidates(
@@ -122,5 +146,38 @@ class MlClientTest < ActiveSupport::TestCase
 
     assert error.retryable?
     assert_nil error.request_id
+  end
+
+  private
+
+  def feature_data
+    {
+      "video_id" => "1",
+      "candidate_id" => "3",
+      "feature_version" => "features-1",
+      "model_version" => "baseline-1",
+      "prompt_version" => nil,
+      "semantic" => {
+        "hook_strength" => 0.88, "standalone_clarity" => 0.96, "information_density" => 0.91,
+        "novelty" => 0.67, "emotional_intensity" => 0.52, "quotability" => 0.84,
+        "payoff_strength" => 0.90, "story_completeness" => 0.89, "technical_depth" => 0.61,
+        "call_to_action_presence" => 0.10, "topic" => "career", "content_type" => "career_advice",
+        "hook_type" => "contrarian"
+      },
+      "audio" => {
+        "words_per_minute" => 168.2, "average_audio_energy" => 0.62, "energy_variance" => 0.18,
+        "energy_change_at_hook" => 0.21, "silence_ratio" => 0.03, "longest_pause_ms" => 820,
+        "pause_frequency" => 0.07
+      },
+      "visual" => {
+        "face_presence_ratio" => 0.80, "visual_motion" => 0.31, "scene_change_rate" => 0.04,
+        "screen_recording_ratio" => 0.0, "camera_change_frequency" => 0.02, "sample_count" => 20
+      },
+      "structural" => {
+        "time_to_main_point_ms" => 1400, "intro_length_ms" => 1200, "sentence_completeness" => 0.94,
+        "hook_to_payoff_time_ms" => 22_400, "dead_air_start_ms" => 0, "dead_air_end_ms" => 2100
+      },
+      "capability_warnings" => []
+    }
   end
 end

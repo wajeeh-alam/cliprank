@@ -12,7 +12,14 @@ class GenerateCandidatesJob < ApplicationJob
       video_id, processing_run_id,
       stage: "generating_candidates", completed_stage: "candidates_complete", video_status: "generating_candidates"
     )
-    return if started == :skip
+    if started == :skip
+      run = ProcessingRun.find(processing_run_id)
+      generation_version = ENV.fetch("ML_GENERATION_VERSION", "candidate-1")
+      if %w[candidates_complete extracting_features].include?(run.current_stage)
+        enqueue_feature_jobs!(video_id, processing_run_id, generation_version)
+      end
+      return
+    end
 
     run, video = load_processing_records(video_id, processing_run_id)
     transcript_version = ENV.fetch("ML_TRANSCRIPT_VERSION", "whisper-1")
@@ -50,7 +57,11 @@ class GenerateCandidatesJob < ApplicationJob
       idempotency_key: "video/#{video.id}/run/#{run.id}/candidates"
     )
     data = validate_candidate_data!(response, video_id: video.id, generation_version: generation_version, duration_ms: video.duration_ms)
-    mark_candidates_complete!(video.id, run.id, generation_version, data.fetch("candidates"))
+    if data.fetch("candidates").empty?
+      raise Ml::Client::PermanentError.new("The source did not produce any valid candidates", code: "NO_CANDIDATES")
+    end
+    persisted = mark_candidates_complete!(video.id, run.id, generation_version, data.fetch("candidates"))
+    enqueue_feature_jobs!(video.id, run.id, generation_version) if persisted || ProcessingRun.find(run.id).current_stage == "candidates_complete"
   rescue Ml::Client::PermanentError => e
     record_terminal_error(video_id, processing_run_id, e)
     nil

@@ -13,7 +13,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
     end
 
     def transcribe(payload, request_id:, idempotency_key:)
-      @transcription_calls << [payload, request_id, idempotency_key]
+      @transcription_calls << [ payload, request_id, idempotency_key ]
       {
         "video_id" => payload.fetch("video_id"),
         "transcript_version" => payload.fetch("transcript_version"),
@@ -33,7 +33,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
     end
 
     def generate_candidates(payload, request_id:, idempotency_key:)
-      @candidate_calls << [payload, request_id, idempotency_key]
+      @candidate_calls << [ payload, request_id, idempotency_key ]
       {
         "video_id" => payload.fetch("video_id"),
         "generation_version" => payload.fetch("generation_version"),
@@ -44,7 +44,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
             "end_ms" => 20_000,
             "duration_ms" => 20_000,
             "transcript" => "A complete thought.",
-            "source_segment_sequences" => [0]
+            "source_segment_sequences" => [ 0 ]
           }
         ]
       }
@@ -71,7 +71,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
     assert_equal "transcription_complete", run.current_stage
     assert_equal "running", run.status
     assert_equal 1, video.transcript_segments.count
-    assert_enqueued_with(job: GenerateCandidatesJob, args: [video.id, run.id])
+    assert_enqueued_with(job: GenerateCandidatesJob, args: [ video.id, run.id ])
     assert_equal "video/#{video.id}/run/#{run.id}/transcription", fake.transcription_calls.first.last
   end
 
@@ -105,7 +105,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
     assert_equal "candidates_complete", run.current_stage
     assert_equal "running", run.status
     assert_equal 1, video.candidate_clips.count
-    assert_empty enqueued_jobs
+    assert_enqueued_with(job: ExtractCandidateFeaturesJob, args: [ video.id, run.id, video.candidate_clips.first.id ])
   end
 
   test "a malformed candidate response is terminal and visible" do
@@ -116,7 +116,7 @@ class PipelineJobsTest < ActiveSupport::TestCase
       is_sentence_boundary_start: true, is_sentence_boundary_end: true, transcript_version: "whisper-1"
     )
     bad_client = Object.new
-    bad_client.define_singleton_method(:generate_candidates) { |*, **| { "video_id" => video.id.to_s, "generation_version" => "candidate-1", "candidates" => [{ "sequence" => 0 }] } }
+    bad_client.define_singleton_method(:generate_candidates) { |*, **| { "video_id" => video.id.to_s, "generation_version" => "candidate-1", "candidates" => [ { "sequence" => 0 } ] } }
 
     GenerateCandidatesJob.perform_now(video.id, run.id, client: bad_client)
 

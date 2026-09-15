@@ -39,10 +39,33 @@ module ModelFactories
     candidate.candidate_feature_sets.create!(
       {
         feature_version: "features-test",
+        model_version: "semantic-test",
         semantic_features: semantic_features,
-        audio_features: { "words_per_minute" => 165.0 },
-        visual_features: { "face_presence_ratio" => 0.8 },
-        structural_features: { "sentence_completeness" => 0.9 }
+        audio_features: {
+          "words_per_minute" => 165.0,
+          "average_audio_energy" => 0.62,
+          "energy_variance" => 0.18,
+          "energy_change_at_hook" => 0.21,
+          "silence_ratio" => 0.03,
+          "longest_pause_ms" => 820,
+          "pause_frequency" => 0.07
+        },
+        visual_features: {
+          "face_presence_ratio" => 0.8,
+          "visual_motion" => 0.31,
+          "scene_change_rate" => 0.04,
+          "screen_recording_ratio" => 0.0,
+          "camera_change_frequency" => 0.02,
+          "sample_count" => 20
+        },
+        structural_features: {
+          "time_to_main_point_ms" => 1400,
+          "intro_length_ms" => 1200,
+          "sentence_completeness" => 0.9,
+          "hook_to_payoff_time_ms" => 22_400,
+          "dead_air_start_ms" => 0,
+          "dead_air_end_ms" => 2100
+        }
       }.merge(attributes)
     )
   end

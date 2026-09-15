@@ -94,6 +94,18 @@ module Ml
         expected_version: data["generation_version"] || data[:generation_version])
     end
 
+    def extract_features(payload = nil, request_id: nil, idempotency_key: nil, **attributes)
+      data = payload || attributes
+      response = post("/internal/api/v1/candidates/features", data, request_id: request_id, idempotency_key: idempotency_key)
+      validate_features!(
+        response,
+        expected_video_id: data["video_id"] || data[:video_id],
+        expected_candidate_id: data["candidate_id"] || data[:candidate_id],
+        expected_version: data["feature_version"] || data[:feature_version]
+      )
+    end
+    alias extract_candidate_features extract_features
+
     private
 
     def post(path, data, request_id:, idempotency_key:)
@@ -143,13 +155,13 @@ module Ml
       unless status.between?(200, 299)
         error = parsed.is_a?(Hash) ? parsed["error"] : nil
         error = {} unless error.is_a?(Hash)
-        if error.key?("retryable") && ![true, false].include?(error["retryable"])
+        if error.key?("retryable") && ![ true, false ].include?(error["retryable"])
           raise ContractError.new("ML error retryable must be boolean", code: "MALFORMED_RESPONSE", status: status)
         end
-        retryable = if [true, false].include?(error["retryable"])
+        retryable = if [ true, false ].include?(error["retryable"])
           error["retryable"]
         else
-          [408, 429].include?(status) || status >= 500
+          [ 408, 429 ].include?(status) || status >= 500
         end
         raise HttpError.new(
           error["message"].to_s.empty? ? "The ML service returned HTTP #{status}" : error["message"].to_s,
@@ -169,7 +181,7 @@ module Ml
       end
 
       required = %w[contract_version request_id idempotency_key data]
-      reject_unknown_keys!(payload, required + ["warnings"])
+      reject_unknown_keys!(payload, required + [ "warnings" ])
       missing = required.reject { |key| payload.key?(key) }
       unless missing.empty?
         raise ContractError.new("The ML service response is missing required fields", code: "MALFORMED_RESPONSE",
@@ -229,7 +241,7 @@ module Ml
           end
           raise ContractError.new("word text must be a string", code: "MALFORMED_RESPONSE") unless word["text"].is_a?(String)
         end
-        unless [true, false].include?(segment["is_sentence_boundary_start"]) && [true, false].include?(segment["is_sentence_boundary_end"])
+        unless [ true, false ].include?(segment["is_sentence_boundary_start"]) && [ true, false ].include?(segment["is_sentence_boundary_end"])
           raise ContractError.new("segment sentence boundary flags must be booleans", code: "MALFORMED_RESPONSE")
         end
         if sequences.key?(segment["sequence"]) || (previous_end && segment["start_ms"] < previous_end)
@@ -266,13 +278,64 @@ module Ml
         unless candidate["source_segment_sequences"].is_a?(Array) && !candidate["source_segment_sequences"].empty? && candidate["source_segment_sequences"].all? { |value| value.is_a?(Integer) && value >= 0 }
           raise ContractError.new("candidate source_segment_sequences must be an array of non-negative integers", code: "MALFORMED_RESPONSE")
         end
-        key = [candidate["start_ms"], candidate["end_ms"]]
+        key = [ candidate["start_ms"], candidate["end_ms"] ]
         if boundaries.key?(key) || sequences.key?(candidate["sequence"])
           raise ContractError.new("candidate sequences and boundaries must be unique", code: "DUPLICATE_CANDIDATE")
         end
         boundaries[key] = true
         sequences[candidate["sequence"]] = true
       end
+      data
+    end
+
+    def validate_features!(data, expected_video_id:, expected_candidate_id:, expected_version:)
+      require_data_keys!(data, %w[video_id candidate_id feature_version model_version prompt_version semantic audio visual structural capability_warnings])
+      reject_unknown_keys!(data, %w[video_id candidate_id feature_version model_version prompt_version semantic audio visual structural capability_warnings])
+      validate_string_match!(data["video_id"], expected_video_id, "video_id")
+      validate_string_match!(data["candidate_id"], expected_candidate_id, "candidate_id")
+      validate_string_match!(data["feature_version"], expected_version, "feature_version")
+      validate_non_empty_string!(data["model_version"], "model_version")
+      unless data["prompt_version"].nil? || (data["prompt_version"].is_a?(String) && !data["prompt_version"].empty?)
+        raise ContractError.new("prompt_version must be a string or null", code: "MALFORMED_RESPONSE")
+      end
+      unless data["capability_warnings"].is_a?(Array) && data["capability_warnings"].all? { |warning| warning.is_a?(String) && !warning.empty? }
+        raise ContractError.new("capability_warnings must contain non-empty strings", code: "MALFORMED_RESPONSE")
+      end
+
+      semantic = data["semantic"]
+      require_data_keys!(semantic, %w[hook_strength standalone_clarity information_density novelty emotional_intensity quotability payoff_strength story_completeness technical_depth call_to_action_presence topic content_type hook_type])
+      reject_unknown_keys!(semantic, %w[hook_strength standalone_clarity information_density novelty emotional_intensity quotability payoff_strength story_completeness technical_depth call_to_action_presence topic content_type hook_type])
+      %w[hook_strength standalone_clarity information_density novelty emotional_intensity quotability payoff_strength story_completeness technical_depth call_to_action_presence].each do |key|
+        validate_unit_float!(semantic[key], "semantic.#{key}")
+      end
+      validate_non_empty_string!(semantic["topic"], "semantic.topic")
+      validate_enum!(semantic["content_type"], %w[story tutorial opinion project_demo career_advice coding_tip educational announcement other], "semantic.content_type")
+      validate_enum!(semantic["hook_type"], %w[question contrarian surprising_claim personal_story result_first problem curiosity_gap none], "semantic.hook_type")
+
+      audio = data["audio"]
+      require_data_keys!(audio, %w[words_per_minute average_audio_energy energy_variance energy_change_at_hook silence_ratio longest_pause_ms pause_frequency])
+      reject_unknown_keys!(audio, %w[words_per_minute average_audio_energy energy_variance energy_change_at_hook silence_ratio longest_pause_ms pause_frequency])
+      validate_non_negative_number!(audio["words_per_minute"], "audio.words_per_minute")
+      %w[average_audio_energy energy_variance energy_change_at_hook silence_ratio pause_frequency].each do |key|
+        validate_unit_float!(audio[key], "audio.#{key}")
+      end
+      validate_integer!(audio["longest_pause_ms"], "audio.longest_pause_ms")
+
+      visual = data["visual"]
+      require_data_keys!(visual, %w[face_presence_ratio visual_motion scene_change_rate screen_recording_ratio camera_change_frequency sample_count])
+      reject_unknown_keys!(visual, %w[face_presence_ratio visual_motion scene_change_rate screen_recording_ratio camera_change_frequency sample_count])
+      %w[face_presence_ratio visual_motion scene_change_rate screen_recording_ratio camera_change_frequency].each do |key|
+        validate_unit_float!(visual[key], "visual.#{key}")
+      end
+      validate_integer!(visual["sample_count"], "visual.sample_count")
+
+      structural = data["structural"]
+      require_data_keys!(structural, %w[time_to_main_point_ms intro_length_ms sentence_completeness hook_to_payoff_time_ms dead_air_start_ms dead_air_end_ms])
+      reject_unknown_keys!(structural, %w[time_to_main_point_ms intro_length_ms sentence_completeness hook_to_payoff_time_ms dead_air_start_ms dead_air_end_ms])
+      %w[time_to_main_point_ms intro_length_ms hook_to_payoff_time_ms dead_air_start_ms dead_air_end_ms].each do |key|
+        validate_integer!(structural[key], "structural.#{key}")
+      end
+      validate_unit_float!(structural["sentence_completeness"], "structural.sentence_completeness")
       data
     end
 
@@ -300,6 +363,30 @@ module Ml
       return if expected.nil? || actual == expected.to_s
 
       raise ContractError.new("ML response #{name} does not match the request", code: "RESPONSE_MISMATCH")
+    end
+
+    def validate_non_empty_string!(value, name)
+      return if value.is_a?(String) && !value.empty?
+
+      raise ContractError.new("#{name} must be a non-empty string", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_non_negative_number!(value, name)
+      return if value.is_a?(Numeric) && value >= 0
+
+      raise ContractError.new("#{name} must be a non-negative number", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_unit_float!(value, name)
+      return if value.is_a?(Numeric) && value.between?(0.0, 1.0)
+
+      raise ContractError.new("#{name} must be between 0 and 1", code: "MALFORMED_RESPONSE")
+    end
+
+    def validate_enum!(value, allowed, name)
+      return if value.is_a?(String) && allowed.include?(value)
+
+      raise ContractError.new("#{name} contains an unsupported value", code: "MALFORMED_RESPONSE")
     end
 
     def validate_integer!(value, name)
