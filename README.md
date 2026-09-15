@@ -19,6 +19,8 @@ Upload in Rails
   -> concurrency-safe features_complete barrier
   -> RankCandidatesJob + versioned FastAPI heuristic scorer
   -> atomic RankingRun/CandidateScore persistence
+  -> deterministic evidence-backed explanations
+  -> authenticated Top-5 results UI
   -> ranking_complete barrier
 ```
 
@@ -35,9 +37,9 @@ keys, row locks, and deterministic idempotency keys make job retries safe.
 Individual candidate failures remain isolated; the run advances only after all
 candidates are terminal and at least five valid feature sets exist by default.
 
-The current branch stops at `ranking_complete`. Deterministic score
-explanations, Top-5 results, and preview/export rendering are the next stages;
-no nonexistent preview job is enqueued at this checkpoint.
+The current branch stops at an explainable Top-5 ranking. Preview rendering and
+export are the next stages; no nonexistent preview job or fake preview is
+exposed at this checkpoint.
 
 See [docs/stage-1-architecture.md](docs/stage-1-architecture.md) for the full
 data model, contracts, and Phase 1 plan.
@@ -135,10 +137,10 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 46 tests, 202 assertions, zero failures;
+- Rails: 55 tests, 258 assertions, zero failures;
 - Rails system smoke test: 1 test, 3 assertions, zero failures;
 - Python: 26 passed and one optional real-media test skipped when FFmpeg is unavailable;
-- RuboCop: zero offenses across 77 files;
+- RuboCop: zero offenses across 81 files;
 - Brakeman: zero security warnings.
 - Bundler and Importmap audits: no known vulnerable dependencies;
 - redacted Gitleaks scan: no leaks across the branch history.
@@ -179,9 +181,10 @@ Current verified results:
    ```
 
 A successful run currently ends with `run_status: "running"`,
-`stage: "ranking_complete"`, a succeeded ranking run, and one immutable score
-per valid candidate. The video is marked `generating_previews` to expose the
-next intended stage, but preview rendering is not implemented yet.
+`stage: "ranking_complete"`, a succeeded ranking run, one immutable score and
+one versioned explanation per valid candidate, plus the five highest-ranked
+results on the video page. The video is marked `generating_previews` to expose
+the next intended stage, but preview rendering is not implemented yet.
 
 ## How ranking analysis works
 
@@ -200,6 +203,13 @@ result preserves the scorer version, feature version, config snapshot, six
 display components, and normalized component details. Rails rejects malformed,
 cross-video, incomplete, duplicate, or non-contiguously ranked responses before
 opening one transaction to persist the complete ranking.
+
+Explanation generation runs inside that same transaction. It uses deterministic
+threshold rules over the persisted feature set, records exact source paths for
+every numeric fact, suppresses unavailable visual capabilities, and rolls back
+the full ranking if any candidate cannot be explained. The results controller
+also requires complete current-version explanations and candidate ownership
+before rendering, preventing partial or cross-video results from appearing.
 
 ## How the service boundary works
 
