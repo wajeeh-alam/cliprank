@@ -12,7 +12,8 @@ from app.api.schemas import (
     TranscriptionRequest,
 )
 from app.domain.errors import ServiceError
-from app.use_cases import generate_candidates, rank_candidates, unsupported
+from app.adapters.faster_whisper import FasterWhisperTranscriber
+from app.use_cases import generate_candidates, rank_candidates, transcribe
 
 router = APIRouter(prefix="/internal/api/v1")
 
@@ -44,6 +45,17 @@ def request_context(
 
 Context = Annotated[tuple[str, str], Depends(request_context)]
 
+_transcriber = None
+
+
+def transcription_provider():
+    """Construct the provider lazily so importing the API never downloads a model."""
+
+    global _transcriber
+    if _transcriber is None:
+        _transcriber = FasterWhisperTranscriber()
+    return _transcriber
+
 
 def envelope(request_id: str, idempotency_key: str, data: object) -> Envelope:
     return Envelope(contract_version="1.0", request_id=request_id, idempotency_key=idempotency_key, data=data)
@@ -52,8 +64,8 @@ def envelope(request_id: str, idempotency_key: str, data: object) -> Envelope:
 @router.post("/transcriptions", response_model=Envelope)
 def transcriptions(request: TranscriptionRequest, context: Context):
     request_id, idempotency_key = context
-    unsupported.transcribe()
-    return envelope(request_id, idempotency_key, {})
+    result = transcribe.execute(request, transcription_provider())
+    return envelope(request_id, idempotency_key, result.model_dump(mode="json"))
 
 
 @router.post("/candidates/generate", response_model=Envelope)

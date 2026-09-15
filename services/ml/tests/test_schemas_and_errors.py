@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api.schemas import TranscriptSegment
+from app.domain.errors import ServiceError
 from app.main import app
 
 
@@ -41,11 +42,17 @@ def test_missing_service_token_is_typed_configuration_error(headers, monkeypatch
     assert response.json()["error"]["code"] == "SERVICE_MISCONFIGURED"
 
 
-def test_unsupported_operations_are_typed(headers):
+def test_transcription_provider_errors_are_typed(headers, monkeypatch):
     body = {
         "contract_version": "1.0", "video_id": "v1", "duration_ms": 1000,
         "transcript_version": "whisper-1", "media": {"signed_url": "https://storage.test/video.mp4", "mime_type": "video/mp4"},
     }
+    class FailingTranscriber:
+        def transcribe(self, *_args):
+            raise ServiceError("TRANSCRIPTION_PROVIDER_UNAVAILABLE", "provider unavailable", retryable=False, status_code=500)
+
+    import app.api.routes as routes
+    monkeypatch.setattr(routes, "_transcriber", FailingTranscriber())
     response = TestClient(app).post("/internal/api/v1/transcriptions", headers=headers, json=body)
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "UNSUPPORTED_OPERATION"
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "TRANSCRIPTION_PROVIDER_UNAVAILABLE"

@@ -5,7 +5,7 @@ from app.domain.errors import ServiceError
 
 
 class Transcriber(Protocol):
-    def transcribe(self, media_url: str, duration_ms: int) -> object: ...
+    def transcribe(self, media_url: str, duration_ms: int, language: str | None = None) -> object: ...
 
 
 class SemanticFeatureExtractor(Protocol):

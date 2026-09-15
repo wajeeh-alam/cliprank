@@ -62,6 +62,26 @@ class TranscriptionRequest(StrictModel):
     language: str | None = None
 
 
+class TranscriptionResponse(StrictModel):
+    """Validated API data returned by the transcription use case."""
+
+    video_id: NonEmpty
+    transcript_version: NonEmpty
+    language: str | None = None
+    segments: list[TranscriptSegment]
+
+    @model_validator(mode="after")
+    def ordered_segments(self):
+        previous_end = 0
+        for expected_sequence, segment in enumerate(self.segments):
+            if segment.sequence != expected_sequence:
+                raise ValueError("transcript segment sequence must be contiguous")
+            if segment.start_ms < previous_end:
+                raise ValueError("transcript segments must not overlap")
+            previous_end = segment.end_ms
+        return self
+
+
 class CandidateGenerationRequest(StrictModel):
     contract_version: ContractVersion
     video_id: NonEmpty

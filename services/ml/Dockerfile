@@ -8,6 +8,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Keep the model lazy: the image contains the provider, while model weights are
+# loaded on first transcription using the configured model name/cache.
+ENV HF_HOME=/var/cache/huggingface \
+    TRANSFORMERS_CACHE=/var/cache/huggingface
+RUN mkdir -p /var/cache/huggingface
+
 WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app

@@ -17,3 +17,7 @@
 /vendor/bundle
 *.swp
 .DS_Store
+__pycache__/
+*.py[cod]
+/services/ml/.venv/
+/services/ml/.pytest_cache/
