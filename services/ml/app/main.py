@@ -26,13 +26,21 @@ async def service_error_handler(request: Request, exc: ServiceError):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
+    validation_errors = []
+    for error in exc.errors():
+        # Pydantic's ``ctx`` can contain a raw ValueError, which is useful in a
+        # traceback but cannot be serialized into the versioned JSON envelope.
+        sanitized = {key: value for key, value in error.items() if key != "ctx"}
+        if "ctx" in error:
+            sanitized["ctx"] = {key: str(value) for key, value in error["ctx"].items()}
+        validation_errors.append(sanitized)
     body = ErrorEnvelope(
         request_id=request.headers.get("X-Request-Id", "unknown"),
         error=ErrorDetail(
             code="INVALID_REQUEST",
             message="The request did not satisfy the versioned contract.",
             retryable=False,
-            details={"validation_errors": exc.errors()},
+            details={"validation_errors": validation_errors},
         ),
     )
     return JSONResponse(status_code=422, content=body.model_dump(mode="json"))

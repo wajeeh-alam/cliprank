@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import AnyHttpUrl, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from app.domain.enums import ContentType, HookType
+from app.domain.ranking import DEFAULT_WEIGHTS
 
 
 class StrictModel(BaseModel):
@@ -210,12 +211,22 @@ class RankConfig(StrictModel):
         expected = {"semantic", "hook", "structural", "delivery", "visual"}
         if set(self.weights) != expected:
             raise ValueError("weights must define exactly semantic, hook, structural, delivery, and visual")
-        if abs(sum(self.weights.values()) - 1.0) > 1e-6:
+        if abs(sum(self.weights.values()) - 1.0) > 1e-9:
             raise ValueError("weights must sum to 1")
+        if any(abs(self.weights[key] - DEFAULT_WEIGHTS[key]) > 1e-9 for key in expected):
+            raise ValueError("weights must match the documented heuristic configuration")
         return self
 
 
 class RankCandidate(StrictModel):
+    """A candidate plus its validated feature set.
+
+    The versioned ``FeatureSet`` contract intentionally carries IDs/version but
+    not source boundaries, so this boundary cannot be cross-checked here. The
+    feature extraction stage validates its own candidate interval before this
+    request is constructed.
+    """
+
     candidate_id: NonEmpty
     start_ms: Millis
     end_ms: Annotated[int, Field(gt=0)]
@@ -230,13 +241,18 @@ class RankCandidate(StrictModel):
         return self
 
 
+class RankComponentDetail(StrictModel):
+    weight: UnitFloat
+    normalized: UnitFloat
+
+
 class RankRequest(StrictModel):
     contract_version: ContractVersion
     video_id: NonEmpty
     feature_version: NonEmpty
     scorer_version: Literal["heuristic-1"]
     config: RankConfig
-    candidates: list[RankCandidate] = Field(min_length=1)
+    candidates: list[RankCandidate] = Field(min_length=1, max_length=40)
 
     @model_validator(mode="after")
     def matching_feature_versions(self):
@@ -257,7 +273,16 @@ class RankedCandidate(StrictModel):
     rank: Annotated[int, Field(ge=1)]
     clip_score: Annotated[float, Field(ge=0.0, le=100.0)]
     components: dict[Literal["content_quality", "hook", "delivery", "pacing", "visual_engagement", "standalone_clarity"], Annotated[float, Field(ge=0.0, le=100.0)]]
-    component_details: dict[str, dict[str, float]]
+    component_details: dict[Literal["semantic", "hook", "structural", "delivery", "visual"], RankComponentDetail]
+
+    @model_validator(mode="after")
+    def complete_components(self):
+        expected = {"content_quality", "hook", "delivery", "pacing", "visual_engagement", "standalone_clarity"}
+        if set(self.components) != expected:
+            raise ValueError("ranked candidate must include exactly the documented score components")
+        if set(self.component_details) != {"semantic", "hook", "structural", "delivery", "visual"}:
+            raise ValueError("ranked candidate must include exactly the documented component details")
+        return self
 
 
 class Envelope(StrictModel):
