@@ -20,8 +20,11 @@ Upload in Rails
   -> RankCandidatesJob + versioned FastAPI heuristic scorer
   -> atomic RankingRun/CandidateScore persistence
   -> deterministic evidence-backed explanations
-  -> authenticated Top-5 results UI
   -> ranking_complete barrier
+  -> RenderPreviewsJob + FFmpeg Top-5 MP4/JPEG generation
+  -> versioned PreviewArtifact rows + private Active Storage files
+  -> all-artifacts-ready completion barrier
+  -> authenticated Top-5 playback UI
 ```
 
 For every candidate, the service produces:
@@ -33,13 +36,15 @@ For every candidate, the service produces:
 
 Feature results carry `feature_version` and `model_version`. Rails validates the
 response at the HTTP boundary and again before persistence. Unique database
-keys, row locks, and deterministic idempotency keys make job retries safe.
+keys, row locks, deterministic idempotency keys, and a ranking-run advisory
+lock make job retries and duplicate preview deliveries safe.
 Individual candidate failures remain isolated; the run advances only after all
 candidates are terminal and at least five valid feature sets exist by default.
 
-The current branch stops at an explainable Top-5 ranking. Preview rendering and
-export are the next stages; no nonexistent preview job or fake preview is
-exposed at this checkpoint.
+The current branch stops at an explainable, playable Top-5. Preview MP4s and
+JPEG thumbnails are immutable, versioned artifacts scoped to one ranking run;
+an older run cannot overwrite or serve media for the current result. Export is
+the next isolated stage and is intentionally not exposed yet.
 
 See [docs/stage-1-architecture.md](docs/stage-1-architecture.md) for the full
 data model, contracts, and Phase 1 plan.
@@ -137,10 +142,10 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 55 tests, 258 assertions, zero failures;
+- Rails: 70 tests, 338 assertions, zero failures;
 - Rails system smoke test: 1 test, 3 assertions, zero failures;
 - Python: 26 passed and one optional real-media test skipped when FFmpeg is unavailable;
-- RuboCop: zero offenses across 81 files;
+- RuboCop: zero offenses across 88 files;
 - Brakeman: zero security warnings.
 - Bundler and Importmap audits: no known vulnerable dependencies;
 - redacted Gitleaks scan: no leaks across the branch history.
@@ -156,8 +161,12 @@ Current verified results:
    docker compose logs -f worker ml
    ```
 
-3. Refresh the video page to see its durable stage and any safe error message.
-4. Inspect the persisted pipeline output:
+3. Leave the video page open. It refreshes every 10 seconds while previews are
+   rendering, then shows private thumbnails and browser playback controls for
+   the Top-5 clips.
+4. Play several clips and confirm each player's displayed timestamps match its
+   ranked candidate. Opening another user's artifact route must return `404`.
+5. Inspect the persisted pipeline output:
 
    ```sh
    docker compose exec web bin/rails runner '
@@ -175,16 +184,33 @@ Current verified results:
      feature_sets: features,
      ranking_status: ranking&.status,
      scores: ranking&.candidate_scores&.count,
-     top_scores: ranking&.candidate_scores&.order(:rank)&.limit(5)&.pluck(:rank, :clip_score)
+     top_scores: ranking&.candidate_scores&.order(:rank)&.limit(5)&.pluck(:rank, :clip_score),
+     preview_artifacts: ranking&.preview_artifacts&.group(:kind, :status)&.count
    }.to_json)
    '
    ```
 
-A successful run currently ends with `run_status: "running"`,
-`stage: "ranking_complete"`, a succeeded ranking run, one immutable score and
-one versioned explanation per valid candidate, plus the five highest-ranked
-results on the video page. The video is marked `generating_previews` to expose
-the next intended stage, but preview rendering is not implemented yet.
+A successful run ends with `run_status: "succeeded"`, `stage: "complete"`, a
+succeeded ranking run, one immutable score and one versioned explanation per
+valid candidate, and two ready artifacts (MP4 preview plus JPEG thumbnail) for
+each of the five highest-ranked results.
+
+## Preview architecture and security
+
+`RenderPreviewsJob` starts only after ranking persistence commits. The renderer
+selects ranks 1-5, validates candidate bounds against the source duration, and
+uses argument-array FFmpeg calls inside a permission-restricted temporary
+directory. A PostgreSQL advisory lock serializes duplicate deliveries for the
+same ranking run. Failed retries terminalize the run and its unfinished
+artifacts; late jobs cannot mutate a completed or failed run.
+
+Each `PreviewArtifact` records its ranking run, candidate, exact boundaries,
+kind, render version, and status. The completion barrier reads only these
+run-scoped artifacts, avoiding cross-run state corruption. Media remains
+private in Active Storage/MinIO. The HTML contains authenticated Rails routes,
+not blob keys or signed storage URLs; after verifying the signed-in owner,
+current ranking, current render version, candidate ownership, and Top-5 rank,
+Rails redirects to a five-minute service URL.
 
 ## How ranking analysis works
 
