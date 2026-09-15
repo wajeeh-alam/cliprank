@@ -20,6 +20,10 @@ class VisualFeatureExtractor(Protocol):
     def extract(self, media_url: str, start_ms: int, end_ms: int) -> object: ...
 
 
+class FeatureExtractor(Protocol):
+    def extract(self, request: object) -> object: ...
+
+
 class CandidateGenerator(Protocol):
     def generate(self, segments: list[TranscriptSegmentValue], duration_ms: int, policy: CandidatePolicy) -> tuple[list[dict], list[str]]: ...
 

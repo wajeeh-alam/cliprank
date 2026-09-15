@@ -12,6 +12,7 @@ dependencies = [
   "pydantic>=2.8,<3",
   "uvicorn[standard]>=0.30,<1",
   "faster-whisper>=1.1,<2",
+  "opencv-python-headless>=4.10,<5",
 ]
 
 [project.optional-dependencies]

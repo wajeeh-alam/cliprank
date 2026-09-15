@@ -20,5 +20,6 @@
 .DS_Store
 __pycache__/
 *.py[cod]
+*.egg-info/
 /services/ml/.venv/
 /services/ml/.pytest_cache/

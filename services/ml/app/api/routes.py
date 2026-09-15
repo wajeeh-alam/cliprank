@@ -13,7 +13,9 @@ from app.api.schemas import (
 )
 from app.domain.errors import ServiceError
 from app.adapters.faster_whisper import FasterWhisperTranscriber
+from app.adapters.features import DeterministicFeatureExtractor
 from app.use_cases import generate_candidates, rank_candidates, transcribe
+from app.use_cases import extract_features
 
 router = APIRouter(prefix="/internal/api/v1")
 
@@ -46,6 +48,7 @@ def request_context(
 Context = Annotated[tuple[str, str], Depends(request_context)]
 
 _transcriber = None
+_feature_extractor = None
 
 
 def transcription_provider():
@@ -55,6 +58,15 @@ def transcription_provider():
     if _transcriber is None:
         _transcriber = FasterWhisperTranscriber()
     return _transcriber
+
+
+def feature_provider():
+    """Construct measured feature extraction lazily; no media work at import time."""
+
+    global _feature_extractor
+    if _feature_extractor is None:
+        _feature_extractor = DeterministicFeatureExtractor()
+    return _feature_extractor
 
 
 def envelope(request_id: str, idempotency_key: str, data: object) -> Envelope:
@@ -89,8 +101,8 @@ def candidates_generate(request: CandidateGenerationRequest, context: Context):
 @router.post("/candidates/features", response_model=Envelope)
 def candidates_features(request: FeatureRequest, context: Context):
     request_id, idempotency_key = context
-    unsupported.extract_features()
-    return envelope(request_id, idempotency_key, {})
+    result = extract_features.execute(request, feature_provider())
+    return envelope(request_id, idempotency_key, result.model_dump(mode="json"))
 
 
 @router.post("/rank", response_model=Envelope)
