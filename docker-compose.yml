@@ -60,9 +60,15 @@ services:
       dockerfile: Dockerfile
     environment:
       ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:?ML_SERVICE_TOKEN is required}
+      ML_MEDIA_ALLOWED_HOSTS: storage
+      ML_TRANSCRIPTION_MODEL: ${ML_TRANSCRIPTION_MODEL:-small}
+      ML_TRANSCRIPTION_DEVICE: ${ML_TRANSCRIPTION_DEVICE:-cpu}
+      ML_TRANSCRIPTION_COMPUTE_TYPE: ${ML_TRANSCRIPTION_COMPUTE_TYPE:-int8}
       ML_HOST: 0.0.0.0
       ML_PORT: 8000
       PYTHONUNBUFFERED: "1"
+    volumes:
+      - whisper_models:/var/cache/huggingface
     ports:
       - "${ML_PORT:-8000}:8000"
     healthcheck:
@@ -165,3 +171,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  whisper_models:
