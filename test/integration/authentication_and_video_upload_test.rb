@@ -56,7 +56,7 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
     login_as(@user)
 
     assert_enqueued_with(job: TranscribeVideoJob) do
-      assert_difference ["Video.count", "ProcessingRun.count"], 1 do
+      assert_difference [ "Video.count", "ProcessingRun.count" ], 1 do
         post videos_path, params: {
           video: { title: "Founder Q&A", source_media: uploaded_file("video/mp4", "founder.mp4") }
         }
@@ -72,7 +72,7 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
   test "requires an MP4 or MOV upload" do
     login_as(@user)
 
-    assert_no_difference ["Video.count", "ProcessingRun.count"] do
+    assert_no_difference [ "Video.count", "ProcessingRun.count" ] do
       post videos_path, params: {
         video: { title: "Unsupported", source_media: uploaded_file("text/plain", "notes.txt") }
       }
@@ -85,7 +85,7 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
   test "requires source media" do
     login_as(@user)
 
-    assert_no_difference ["Video.count", "ProcessingRun.count"] do
+    assert_no_difference [ "Video.count", "ProcessingRun.count" ] do
       post videos_path, params: { video: { title: "Missing recording" } }
     end
 
@@ -110,7 +110,7 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
   end
 
   def uploaded_file(content_type, filename)
-    tempfile = Tempfile.new(["clip-rank-upload", File.extname(filename)])
+    tempfile = Tempfile.new([ "clip-rank-upload", File.extname(filename) ])
     tempfile.binmode
     tempfile.write("test upload bytes")
     tempfile.rewind

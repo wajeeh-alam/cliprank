@@ -20,7 +20,7 @@ class TranscriptSegmentTest < ActiveSupport::TestCase
       start_ms: 0,
       end_ms: 4_000,
       text: "Hello world",
-      words: [{ "start_ms" => 2_000, "end_ms" => 1_000, "text" => "Hello" }],
+      words: [ { "start_ms" => 2_000, "end_ms" => 1_000, "text" => "Hello" } ],
       transcript_version: "transcript-test"
     )
 
