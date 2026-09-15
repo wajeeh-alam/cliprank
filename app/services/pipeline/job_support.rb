@@ -216,6 +216,10 @@ module Pipeline
           )
           candidate.update!(status: "ranked")
         end
+        # Explanations are deterministic templates over the rows just written.
+        # Keep them in this transaction so a visible ranking is always fully
+        # explainable and a retry cannot expose a partial result set.
+        Explanations::Generator.call(ranking_run)
         ranking_run.update!(status: "succeeded", completed_at: Time.current, error_code: nil, error_message: nil)
         run.update!(status: "running", current_stage: "ranking_complete", error_code: nil, error_message: nil)
         video.update!(status: "generating_previews", processing_error_code: nil, processing_error_message: nil, processing_error_details: {})

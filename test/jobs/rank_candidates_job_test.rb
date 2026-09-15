@@ -46,6 +46,14 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
     end
   end
 
+  class MissingEvidenceRankClient < FakeRankClient
+    def rank(...)
+      response = super
+      CandidateFeatureSet.delete_all
+      response
+    end
+  end
+
   setup do
     ActiveJob::Base.queue_adapter = :test
     clear_enqueued_jobs
@@ -65,6 +73,7 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal({ "semantic" => 0.35, "hook" => 0.2, "structural" => 0.2, "delivery" => 0.15, "visual" => 0.1 }, ranking_run.config.fetch("weights"))
       assert_equal "succeeded", ranking_run.status
       assert_equal 2, ranking_run.candidate_scores.count
+      assert_equal 2, Explanation.joins(:candidate_score).where(candidate_scores: { ranking_run_id: ranking_run.id }).count
       assert_equal [ "ranked", "ranked" ], candidates.map { |candidate| candidate.reload.status }
       assert_equal "ranking_complete", run.reload.current_stage
       assert_equal "running", run.status
@@ -144,6 +153,21 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal "MALFORMED_RESPONSE", run.error_code
       assert_equal "failed", video.reload.ranking_runs.first.status
       assert_empty candidates.first.reload.candidate_scores
+    end
+  end
+
+  test "explanation failure rolls back every score before failing the run" do
+    with_env("ML_MIN_VALID_CANDIDATES", "1") do
+      video, run, = build_rankable_pipeline(count: 1)
+      fake = MissingEvidenceRankClient.new
+
+      RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+      ranking_run = video.reload.ranking_runs.first
+      assert_equal "failed", ranking_run.status
+      assert_equal "EXPLANATION_ERROR", run.reload.error_code
+      assert_empty ranking_run.candidate_scores
+      assert_empty Explanation.all
     end
   end
 

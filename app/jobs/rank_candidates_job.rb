@@ -10,7 +10,18 @@ class RankCandidatesJob < ApplicationJob
     client ||= injected_client
     config = Pipeline::RankingConfig.for
     started, ranking_run_id = begin_ranking!(video_id, processing_run_id, config)
-    return if started == :skip
+    if started == :skip
+      run, = load_processing_records(video_id, processing_run_id)
+      ranking_run_id ||= run.ranking_runs.where(status: "succeeded").order(id: :desc).pick(:id)
+      if ranking_run_id
+        begin
+          Explanations::Generator.call(run.ranking_runs.find(ranking_run_id))
+        rescue Explanations::Generator::Error => e
+          Rails.logger.warn("Explanation backfill skipped for ranking run #{ranking_run_id}: #{e.message}")
+        end
+      end
+      return
+    end
 
     run, video = load_processing_records(video_id, processing_run_id)
     ranking_run = RankingRun.find(ranking_run_id)
@@ -85,6 +96,14 @@ class RankCandidatesJob < ApplicationJob
       "The ranking result conflicted with an existing result",
       code: "DUPLICATE_RESULT",
       details: { "class" => e.class.name }
+    )
+    record_ranking_terminal_error(video_id, processing_run_id, error)
+    nil
+  rescue Explanations::Generator::Error => e
+    error = Ml::Client::PermanentError.new(
+      "The deterministic explanation could not be generated",
+      code: "EXPLANATION_ERROR",
+      details: { "message" => e.message }
     )
     record_ranking_terminal_error(video_id, processing_run_id, error)
     nil

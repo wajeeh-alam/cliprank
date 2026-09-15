@@ -40,7 +40,31 @@ class VideosController < ApplicationController
   end
 
   def show
-    @processing_run = @video.processing_runs.order(created_at: :desc).first
+    @processing_run = @video.processing_runs.order(created_at: :desc, id: :desc).first
+    @ranking_run = @video.ranking_runs
+      .joins(:processing_run)
+      .where(status: "succeeded")
+      .where.not(completed_at: nil)
+      .where(processing_runs: { video_id: @video.id })
+      .order(ranking_runs: { completed_at: :desc, id: :desc })
+      .first
+    @results_fallback = @ranking_run.present? && @processing_run.present? && @ranking_run.processing_run_id != @processing_run.id
+    @ranked_scores = []
+    return unless @ranking_run
+
+    all_scores = @ranking_run.candidate_scores
+    owned_scores = all_scores.joins(:candidate_clip).where(candidate_clips: { video_id: @video.id })
+    explained_count = Explanation.joins(:candidate_score).where(
+      candidate_scores: { ranking_run_id: @ranking_run.id },
+      explanation_version: Explanations::Generator::VERSION
+    ).count
+    @results_pending = all_scores.count.zero? || owned_scores.count != all_scores.count || explained_count != all_scores.count
+    return if @results_pending
+
+    @ranked_scores = owned_scores
+      .includes(:explanations, candidate_clip: :candidate_feature_sets)
+      .order(:rank, :id)
+      .limit(5)
   end
 
   private
