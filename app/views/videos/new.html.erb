@@ -1,0 +1,21 @@
+<% content_for :title, "Upload a video · ClipRank" %>
+
+<main class="form-shell">
+  <p class="eyebrow">New analysis</p>
+  <h1>Upload a recording</h1>
+  <p class="lede">Choose an MP4 or MOV file. Processing happens in the background, so you can leave this page after submitting.</p>
+  <% if @video.errors.any? %>
+    <div class="error-summary" role="alert">
+      <%= pluralize(@video.errors.count, "error") %> prevented this upload:
+      <ul><% @video.errors.full_messages.each do |message| %><li><%= message %></li><% end %></ul>
+    </div>
+  <% end %>
+  <%= form_with model: @video, url: videos_path, multipart: true do |form| %>
+    <%= form.label :title %>
+    <%= form.text_field :title, required: true, autofocus: true, placeholder: "e.g. Founder Q&A" %>
+    <%= form.label :source_media, "Recording" %>
+    <%= form.file_field :source_media, required: true, accept: "video/mp4,video/quicktime,.mp4,.mov" %>
+    <p class="field-hint">MP4 or MOV, with the original audio included.</p>
+    <%= form.submit "Start analysis", class: "button" %>
+  <% end %>
+</main>

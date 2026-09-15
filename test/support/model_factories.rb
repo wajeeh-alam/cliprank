@@ -1,6 +1,9 @@
 module ModelFactories
   def build_user
-    User.new(email: "creator-#{SecureRandom.hex(4)}@example.com", name: "Creator")
+    User.new(
+      email: "creator-#{SecureRandom.hex(4)}@example.com", name: "Creator",
+      password: "password-123", password_confirmation: "password-123"
+    )
   end
 
   def create_video(**attributes)

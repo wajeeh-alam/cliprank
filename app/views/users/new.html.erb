@@ -1,0 +1,32 @@
+<% content_for :title, "Create your ClipRank account" %>
+
+<main class="auth-card">
+  <p class="eyebrow">ClipRank</p>
+  <h1>Create your account</h1>
+  <p class="lede">Upload a recording and turn the strongest moments into clips.</p>
+
+  <% if @user.errors.any? %>
+    <div class="error-summary" role="alert">
+      <%= pluralize(@user.errors.count, "error") %> prevented your account from being created:
+      <ul>
+        <% @user.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= form_with model: @user, url: signup_path do |form| %>
+    <%= form.label :name, "Name (optional)" %>
+    <%= form.text_field :name, autocomplete: "name" %>
+    <%= form.label :email %>
+    <%= form.email_field :email, required: true, autocomplete: "email", autofocus: true %>
+    <%= form.label :password %>
+    <%= form.password_field :password, required: true, autocomplete: "new-password" %>
+    <%= form.label :password_confirmation, "Confirm password" %>
+    <%= form.password_field :password_confirmation, required: true, autocomplete: "new-password" %>
+    <%= form.submit "Create account", class: "button" %>
+  <% end %>
+
+  <p class="form-footnote">Already have an account? <%= link_to "Log in", login_path %>.</p>
+</main>

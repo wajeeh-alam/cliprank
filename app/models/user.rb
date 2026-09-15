@@ -1,4 +1,6 @@
 class User < ApplicationRecord
+  has_secure_password
+
   has_many :videos, dependent: :restrict_with_exception
   has_many :exports, dependent: :restrict_with_exception
 

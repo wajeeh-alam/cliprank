@@ -8,3 +8,42 @@
  *
  * Consider organizing styles into separate files for maintainability.
  */
+
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #17202a; background: #f7f8fa; line-height: 1.5; }
+body { margin: 0; }
+a { color: #3856d6; }
+.site-header { align-items: center; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; padding: 1rem max(1.25rem, calc((100vw - 1100px) / 2)); }
+.site-header nav { align-items: center; display: flex; gap: 1rem; }
+.brand { color: #17202a; font-size: 1.2rem; font-weight: 800; text-decoration: none; }
+.page-shell, .form-shell { margin: 0 auto; max-width: 920px; padding: 3.5rem 1.25rem; }
+.auth-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; margin: 4rem auto; max-width: 440px; padding: 2.5rem; }
+.page-heading { align-items: flex-end; display: flex; gap: 2rem; justify-content: space-between; margin-bottom: 2rem; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; margin: .25rem 0 .75rem; }
+h2 { margin: 0 0 .35rem; }
+.eyebrow { color: #667085; font-size: .75rem; font-weight: 700; letter-spacing: .12em; margin: 0; text-transform: uppercase; }
+.lede { color: #667085; margin: 0 0 1.5rem; }
+form { display: grid; gap: .55rem; }
+label { font-weight: 650; margin-top: .55rem; }
+input[type="email"], input[type="password"], input[type="text"], input[type="file"] { background: #fff; border: 1px solid #cfd4dc; border-radius: 8px; box-sizing: border-box; font: inherit; padding: .7rem .8rem; width: 100%; }
+.button { background: #3856d6; border: 0; border-radius: 8px; color: #fff; cursor: pointer; display: inline-block; font: inherit; font-weight: 700; margin-top: 1rem; padding: .75rem 1.1rem; text-decoration: none; }
+.button-small { margin-top: 0; padding: .45rem .75rem; }
+.link-button { background: none; border: 0; color: #3856d6; cursor: pointer; font: inherit; padding: 0; }
+.form-footnote, .field-hint { color: #667085; font-size: .9rem; }
+.error-summary { background: #fff2f0; border: 1px solid #f3b4ab; border-radius: 8px; color: #8a2014; margin: 1rem 0; padding: .85rem 1rem; }
+.error-summary ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+.flash { margin: 1rem auto 0; max-width: 920px; padding: .75rem 1.25rem; }
+.flash-notice { background: #eaf8ef; color: #175c2c; }
+.flash-alert { background: #fff2f0; color: #8a2014; }
+.empty-state, .detail-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 2rem; }
+.video-list { display: grid; gap: .75rem; }
+.video-card { align-items: center; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; color: inherit; display: flex; justify-content: space-between; padding: 1.1rem 1.25rem; text-decoration: none; }
+.video-card p { color: #667085; margin: .2rem 0 0; }
+.status { background: #eef1ff; border-radius: 999px; color: #3047b5; font-size: .8rem; font-weight: 700; padding: .35rem .65rem; white-space: nowrap; }
+.status-complete { background: #eaf8ef; color: #175c2c; }
+.status-failed { background: #fff2f0; color: #8a2014; }
+.metadata { border-top: 1px solid #e5e7eb; display: grid; gap: .8rem; margin-top: 1.5rem; padding-top: 1.5rem; }
+.metadata div { display: flex; justify-content: space-between; }
+.metadata dt { color: #667085; }
+.metadata dd { font-weight: 650; margin: 0; }
+.back-link { display: inline-block; margin-bottom: 2rem; }
+@media (max-width: 640px) { .page-heading { align-items: flex-start; flex-direction: column; } .site-header nav { gap: .6rem; } .site-header { padding: 1rem; } .auth-card { margin: 2rem 1rem; padding: 1.5rem; } }

@@ -1,0 +1,15 @@
+<% content_for :title, "Log in to ClipRank" %>
+
+<main class="auth-card">
+  <p class="eyebrow">ClipRank</p>
+  <h1>Welcome back</h1>
+  <p class="lede">Continue to your recordings and clip recommendations.</p>
+  <%= form_with scope: :session, url: login_path do |form| %>
+    <%= form.label :email %>
+    <%= form.email_field :email, required: true, autocomplete: "email", autofocus: true, value: @user.email %>
+    <%= form.label :password %>
+    <%= form.password_field :password, required: true, autocomplete: "current-password" %>
+    <%= form.submit "Log in", class: "button" %>
+  <% end %>
+  <p class="form-footnote">New to ClipRank? <%= link_to "Create an account", signup_path %>.</p>
+</main>
