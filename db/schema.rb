@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_071000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_100002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -154,6 +154,56 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_071000) do
     t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'rendering'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text])", name: "exports_status_valid"
   end
 
+  create_table "instagram_accounts", force: :cascade do |t|
+    t.text "access_token_ciphertext", null: false
+    t.string "account_type", null: false
+    t.datetime "created_at", null: false
+    t.string "instagram_user_id", null: false
+    t.datetime "last_synced_at"
+    t.string "sync_error"
+    t.datetime "token_expires_at"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.string "username", null: false
+    t.index ["instagram_user_id"], name: "index_instagram_accounts_on_instagram_user_id", unique: true
+    t.index ["user_id", "instagram_user_id"], name: "index_instagram_accounts_on_user_and_instagram_user", unique: true
+    t.index ["user_id"], name: "index_instagram_accounts_on_user_id"
+    t.check_constraint "account_type::text = ANY (ARRAY['BUSINESS'::character varying, 'CREATOR'::character varying]::text[])", name: "instagram_accounts_account_type_valid"
+  end
+
+  create_table "instagram_insight_snapshots", force: :cascade do |t|
+    t.datetime "captured_at", null: false
+    t.date "captured_on", null: false
+    t.datetime "created_at", null: false
+    t.bigint "instagram_account_id", null: false
+    t.bigint "instagram_media_id", null: false
+    t.jsonb "metrics", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["instagram_account_id", "captured_on"], name: "index_instagram_insights_on_account_and_captured_on"
+    t.index ["instagram_account_id"], name: "index_instagram_insight_snapshots_on_instagram_account_id"
+    t.index ["instagram_media_id", "captured_on"], name: "index_instagram_insights_on_media_and_captured_on", unique: true
+    t.index ["instagram_media_id"], name: "index_instagram_insight_snapshots_on_instagram_media_id"
+    t.check_constraint "jsonb_typeof(metrics) = 'object'::text", name: "instagram_insight_snapshots_metrics_object"
+  end
+
+  create_table "instagram_media", force: :cascade do |t|
+    t.text "caption"
+    t.integer "comments_count"
+    t.datetime "created_at", null: false
+    t.bigint "instagram_account_id", null: false
+    t.string "instagram_media_id", null: false
+    t.integer "like_count"
+    t.string "media_product_type"
+    t.string "media_type", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "permalink"
+    t.datetime "published_at"
+    t.datetime "updated_at", null: false
+    t.index ["instagram_account_id", "instagram_media_id"], name: "index_instagram_media_on_account_and_instagram_media", unique: true
+    t.index ["instagram_account_id"], name: "index_instagram_media_on_instagram_account_id"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "instagram_media_metadata_object"
+  end
+
   create_table "preview_artifacts", force: :cascade do |t|
     t.bigint "candidate_clip_id", null: false
     t.datetime "created_at", null: false
@@ -284,6 +334,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_071000) do
   add_foreign_key "explanations", "candidate_scores", on_delete: :restrict
   add_foreign_key "exports", "candidate_clips", on_delete: :restrict
   add_foreign_key "exports", "users", on_delete: :restrict
+  add_foreign_key "instagram_accounts", "users", on_delete: :restrict
+  add_foreign_key "instagram_insight_snapshots", "instagram_accounts", on_delete: :cascade
+  add_foreign_key "instagram_insight_snapshots", "instagram_media", column: "instagram_media_id", on_delete: :cascade
+  add_foreign_key "instagram_media", "instagram_accounts", on_delete: :cascade
   add_foreign_key "preview_artifacts", "candidate_clips", on_delete: :restrict
   add_foreign_key "preview_artifacts", "ranking_runs", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict

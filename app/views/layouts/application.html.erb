@@ -29,6 +29,7 @@
         <% if logged_in? %>
           <%= link_to "My videos", videos_path %>
           <%= link_to "Upload video", new_video_path %>
+          <%= link_to "Integrations", integrations_path %>
           <%= button_to "Log out", logout_path, method: :delete, class: "link-button" %>
         <% else %>
           <%= link_to "Log in", login_path %>

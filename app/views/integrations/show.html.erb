@@ -1,0 +1,27 @@
+<% content_for :title, "Integrations · ClipRank" %>
+
+<main class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Connected services</p>
+      <h1>Integrations</h1>
+      <p class="lede">Bring your owned Instagram Business or Creator media and insights into ClipRank.</p>
+    </div>
+  </div>
+
+  <section class="empty-state" aria-labelledby="instagram-heading">
+    <h2 id="instagram-heading">Instagram Professional</h2>
+    <% if @instagram_accounts.empty? %>
+      <p>No Instagram account is connected.</p>
+      <%= link_to "Connect Instagram", instagram_connect_path, class: "button" %>
+    <% else %>
+      <% @instagram_accounts.each do |account| %>
+        <p><strong>@<%= account.username %></strong> · <%= account.account_type.titleize %> · <%= account.instagram_media.size %> media items</p>
+        <% if account.last_synced_at %><p>Last synced <%= l(account.last_synced_at, format: :long) %></p><% end %>
+        <% if account.sync_error %><p role="alert">Sync issue: <%= account.sync_error %></p><% end %>
+        <%= button_to "Sync now", instagram_sync_path(account), method: :post, class: "button" %>
+        <%= button_to "Disconnect", instagram_disconnect_path(account), method: :delete, class: "button button-secondary" %>
+      <% end %>
+    <% end %>
+  </section>
+</main>
