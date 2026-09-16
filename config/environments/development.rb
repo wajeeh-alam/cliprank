@@ -1,4 +1,5 @@
 require "active_support/core_ext/integer/time"
+require "uri"
 
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
@@ -14,6 +15,14 @@ Rails.application.configure do
 
   # Enable server timing.
   config.server_timing = true
+
+  # OAuth providers must redirect to a public HTTPS host during local testing.
+  # Keep Host Authorization enabled and allow only the host already configured
+  # as the Instagram callback, rather than trusting every tunnel hostname.
+  if ENV["META_INSTAGRAM_REDIRECT_URI"].present?
+    instagram_redirect_uri = URI.parse(ENV.fetch("META_INSTAGRAM_REDIRECT_URI"))
+    config.hosts << instagram_redirect_uri.host if instagram_redirect_uri.is_a?(URI::HTTPS) && instagram_redirect_uri.host.present?
+  end
 
   # Enable/disable Action Controller caching. By default Action Controller caching is disabled.
   # Run rails dev:cache to toggle Action Controller caching.
