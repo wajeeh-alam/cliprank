@@ -29,7 +29,9 @@ class RankCandidatesJob < ApplicationJob
     feature_version = ranking_run.feature_version
     scorer_version = ranking_run.scorer_version
     request_config = normalize_payload(ranking_run.config)
-    candidates = video.candidate_clips.order(:sequence, :id).each_with_object([]) do |candidate, ranked_input|
+    generation_version = resolve_candidate_generation_version!(run)
+    generated_candidates = video.candidate_clips.where(generation_version: generation_version).order(:sequence, :id)
+    candidates = generated_candidates.each_with_object([]) do |candidate, ranked_input|
       feature_set = candidate.candidate_feature_sets.find_by(feature_version: feature_version)
       next if feature_set.nil? || candidate.status == "failed"
 
@@ -51,7 +53,7 @@ class RankCandidatesJob < ApplicationJob
         }
       }
     end
-    minimum = [ ENV.fetch("ML_MIN_VALID_CANDIDATES", "5").to_i, 1 ].max
+    minimum = minimum_valid_candidates(video, processing_run: run, available_count: generated_candidates.size)
     if candidates.length < minimum
       raise Ml::Client::PermanentError.new(
         "Not enough candidates have valid feature sets for ranking",

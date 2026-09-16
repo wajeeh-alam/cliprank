@@ -15,7 +15,7 @@ class CandidateClip < ApplicationRecord
   validates :sequence, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :transcript, :generation_version, presence: true
   validates :start_ms, :end_ms, :duration_ms, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
-  validates :duration_ms, numericality: { in: 15_000..60_000 }
+  validates :duration_ms, numericality: { in: 3_000..60_000 }
   validate :timestamp_range
   validate :recommended_timestamp_range
 

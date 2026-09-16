@@ -91,7 +91,8 @@ module Ml
       data = payload || attributes
       response = post("/internal/api/v1/candidates/generate", data, request_id: request_id, idempotency_key: idempotency_key)
       validate_candidates!(response, expected_video_id: data["video_id"] || data[:video_id],
-        expected_version: data["generation_version"] || data[:generation_version])
+        expected_version: data["generation_version"] || data[:generation_version],
+        processing_mode: data["processing_mode"] || data[:processing_mode] || "repurpose")
     end
 
     def extract_features(payload = nil, request_id: nil, idempotency_key: nil, **attributes)
@@ -267,7 +268,7 @@ module Ml
       data
     end
 
-    def validate_candidates!(data, expected_video_id:, expected_version:)
+    def validate_candidates!(data, expected_video_id:, expected_version:, processing_mode: "repurpose")
       require_data_keys!(data, %w[video_id generation_version candidates])
       reject_unknown_keys!(data, %w[video_id generation_version candidates])
       validate_string_match!(data["video_id"], expected_video_id, "video_id")
@@ -283,8 +284,10 @@ module Ml
         validate_integer!(candidate["sequence"], "candidate sequence")
         validate_ms_range!(candidate["start_ms"], candidate["end_ms"], "candidate")
         validate_integer!(candidate["duration_ms"], "candidate duration_ms")
-        unless candidate["duration_ms"] == candidate["end_ms"] - candidate["start_ms"] && candidate["duration_ms"].between?(15_000, 60_000)
-          raise ContractError.new("candidate duration must equal its interval and be 15–60 seconds", code: "INVALID_CANDIDATE_DURATION")
+        minimum_duration = processing_mode.to_s == "audit" ? 3_000 : 15_000
+        unless candidate["duration_ms"] == candidate["end_ms"] - candidate["start_ms"] && candidate["duration_ms"].between?(minimum_duration, 60_000)
+          range = processing_mode.to_s == "audit" ? "3–60" : "15–60"
+          raise ContractError.new("candidate duration must equal its interval and be #{range} seconds", code: "INVALID_CANDIDATE_DURATION")
         end
         unless candidate["transcript"].is_a?(String) && !candidate["transcript"].strip.empty?
           raise ContractError.new("candidate transcript must be a non-empty string", code: "MALFORMED_RESPONSE")

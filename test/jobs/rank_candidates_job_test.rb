@@ -117,6 +117,49 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
     end
   end
 
+  test "ranks only the candidate generation persisted on the processing run" do
+    video, run, expected = build_rankable_pipeline(count: 1)
+    stale = create_candidate(
+      video: video,
+      sequence: 20,
+      start_ms: 20_000,
+      end_ms: 40_000,
+      generation_version: "candidate-stale"
+    )
+    create_feature_set(candidate: stale, feature_version: "features-1")
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    ranked_ids = fake.calls.first.first.fetch("candidates").pluck("candidate_id")
+    assert_equal expected.map { |candidate| candidate.id.to_s }, ranked_ids
+    assert_not_includes ranked_ids, stale.id.to_s
+  end
+
+  test "accepts fewer than five long-form candidates when those are all distinct edits" do
+    video, run, = build_rankable_pipeline(count: 4)
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    assert_equal 4, fake.calls.first.first.fetch("candidates").length
+    assert_equal "ranking_complete", run.reload.current_stage
+  end
+
+  test "uses the processing run mode for the downstream quality minimum" do
+    video, run, candidates = build_rankable_pipeline(count: 4)
+    video.update!(duration_ms: 60_000)
+    CandidateFeatureSet.where(candidate_clip_id: candidates.drop(1).map(&:id)).delete_all
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    assert_empty fake.calls
+    assert_equal "failed", run.reload.status
+    assert_equal "INSUFFICIENT_VALID_CANDIDATES", run.error_code
+    assert_equal 4, run.error_details.fetch("required_candidate_count")
+  end
+
   test "does not rank before the feature barrier" do
     video = create_video(duration_ms: 60_000)
     run = video.processing_runs.create!(
@@ -179,7 +222,9 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       pipeline_version: video.pipeline_version,
       idempotency_key: "video/#{video.id}/rank",
       status: "running",
-      current_stage: "features_complete"
+      current_stage: "features_complete",
+      candidate_generation_version: "candidate-1",
+      candidate_processing_mode: "repurpose"
     )
     candidates = count.times.map do |index|
       start_ms = index * 20_000

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_071000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -64,7 +64,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_060000) do
     t.index ["video_id", "start_ms"], name: "index_candidate_clips_on_video_id_and_start_ms"
     t.index ["video_id", "status"], name: "index_candidate_clips_on_video_id_and_status"
     t.index ["video_id"], name: "index_candidate_clips_on_video_id"
-    t.check_constraint "duration_ms = (end_ms - start_ms) AND duration_ms >= 15000 AND duration_ms <= 60000", name: "candidate_clips_duration_range"
+    t.check_constraint "duration_ms = (end_ms - start_ms) AND duration_ms >= 3000 AND duration_ms <= 60000", name: "candidate_clips_duration_range"
     t.check_constraint "recommended_start_ms IS NULL AND recommended_end_ms IS NULL OR recommended_start_ms >= 0 AND recommended_start_ms < recommended_end_ms", name: "candidate_clips_recommended_range"
     t.check_constraint "sequence >= 0", name: "candidate_clips_sequence_non_negative"
     t.check_constraint "start_ms >= 0 AND start_ms < end_ms", name: "candidate_clips_timestamp_range"
@@ -178,6 +178,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_060000) do
 
   create_table "processing_runs", force: :cascade do |t|
     t.integer "attempt_count", default: 0, null: false
+    t.string "candidate_generation_version"
+    t.string "candidate_processing_mode"
     t.datetime "completed_at"
     t.datetime "created_at", null: false
     t.string "current_stage"
@@ -194,6 +196,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_060000) do
     t.index ["video_id", "pipeline_version", "status"], name: "idx_on_video_id_pipeline_version_status_27b3ba7c54"
     t.index ["video_id"], name: "index_processing_runs_on_video_id"
     t.check_constraint "attempt_count >= 0", name: "processing_runs_attempt_count_non_negative"
+    t.check_constraint "candidate_processing_mode IS NULL OR (candidate_processing_mode::text = ANY (ARRAY['audit'::character varying, 'repurpose'::character varying]::text[]))", name: "processing_runs_candidate_mode_valid"
     t.check_constraint "jsonb_typeof(error_details) = 'object'::text", name: "processing_runs_error_details_object"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "processing_runs_status_valid"
   end

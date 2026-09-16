@@ -9,4 +9,5 @@ class ProcessingRun < ApplicationRecord
   validates :pipeline_version, :idempotency_key, presence: true
   validates :attempt_count, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :error_details, hash_payload: true
+  validates :candidate_processing_mode, inclusion: { in: %w[audit repurpose] }, allow_nil: true
 end

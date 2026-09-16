@@ -24,6 +24,7 @@ def execute(request: CandidateGenerationRequest, generator=None) -> tuple[list[C
             max_duration_ms=request.max_duration_ms,
             target_count_min=request.target_count_min,
             target_count_max=request.target_count_max,
+            processing_mode=request.processing_mode,
         ),
     )
     return [Candidate.model_validate(item) for item in raw], warnings

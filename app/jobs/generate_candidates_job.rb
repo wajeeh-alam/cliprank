@@ -14,7 +14,7 @@ class GenerateCandidatesJob < ApplicationJob
     )
     if started == :skip
       run = ProcessingRun.find(processing_run_id)
-      generation_version = ENV.fetch("ML_GENERATION_VERSION", "candidate-1")
+      generation_version = resolve_candidate_generation_version!(run)
       if %w[candidates_complete extracting_features].include?(run.current_stage)
         enqueue_feature_jobs!(video_id, processing_run_id, generation_version)
       end
@@ -23,10 +23,15 @@ class GenerateCandidatesJob < ApplicationJob
 
     run, video = load_processing_records(video_id, processing_run_id)
     transcript_version = ENV.fetch("ML_TRANSCRIPT_VERSION", "whisper-1")
-    generation_version = ENV.fetch("ML_GENERATION_VERSION", "candidate-1")
     if video.duration_ms.nil?
       raise Ml::Client::PermanentError.new("The source duration is required for candidate generation", code: "SOURCE_DURATION_MISSING")
     end
+    generation_version = run.candidate_generation_version.presence || ENV.fetch("ML_GENERATION_VERSION", "candidate-2")
+    processing_mode = run.candidate_processing_mode.presence || (video.duration_ms <= 60_000 ? "audit" : "repurpose")
+    run.update!(candidate_generation_version: generation_version, candidate_processing_mode: processing_mode)
+    minimum_duration_ms = processing_mode == "audit" ? 3_000 : 15_000
+    target_count_min = processing_mode == "audit" ? 1 : 10
+    target_count_max = processing_mode == "audit" ? 5 : 40
     segments = video.transcript_segments.where(transcript_version: transcript_version).order(:sequence).to_a
     if segments.empty?
       raise Ml::Client::PermanentError.new("A transcript is required before candidates can be generated", code: "TRANSCRIPT_MISSING")
@@ -36,10 +41,11 @@ class GenerateCandidatesJob < ApplicationJob
       "video_id" => video.id.to_s,
       "duration_ms" => video.duration_ms,
       "generation_version" => generation_version,
-      "min_duration_ms" => 15_000,
+      "processing_mode" => processing_mode,
+      "min_duration_ms" => minimum_duration_ms,
       "max_duration_ms" => 60_000,
-      "target_count_min" => 10,
-      "target_count_max" => 40,
+      "target_count_min" => target_count_min,
+      "target_count_max" => target_count_max,
       "segments" => segments.map do |segment|
         {
           "sequence" => segment.sequence,
@@ -56,7 +62,7 @@ class GenerateCandidatesJob < ApplicationJob
       request_id: request_id(video.id, run.id, "candidates"),
       idempotency_key: "video/#{video.id}/run/#{run.id}/candidates"
     )
-    data = validate_candidate_data!(response, video_id: video.id, generation_version: generation_version, duration_ms: video.duration_ms)
+    data = validate_candidate_data!(response, video_id: video.id, generation_version: generation_version, duration_ms: video.duration_ms, processing_mode: processing_mode)
     if data.fetch("candidates").empty?
       raise Ml::Client::PermanentError.new("The source did not produce any valid candidates", code: "NO_CANDIDATES")
     end
