@@ -40,8 +40,34 @@ class InstagramIntegrationsTest < ActionDispatch::IntegrationTest
     assert_includes location, "www.instagram.com/oauth/authorize"
     assert_includes location, "state="
     assert_includes location, "instagram_business_basic"
-    assert_not_includes location, "instagram_business_manage_insights"
+    assert_includes location, "instagram_business_manage_insights"
     assert_not_includes location, "app-secret"
+  end
+
+  test "shows imported creator content and available analytics" do
+    account = @user.instagram_accounts.create!(
+      instagram_user_id: "17841400000000200", username: "creator", account_type: "CREATOR",
+      access_token: "secret-token", last_synced_at: Time.zone.parse("2026-09-16 12:00:00 UTC")
+    )
+    media = account.instagram_media.create!(
+      instagram_media_id: "media-dashboard-1", media_type: "VIDEO", media_product_type: "REELS",
+      caption: "A useful short-form lesson", published_at: Time.zone.parse("2026-09-15 12:00:00 UTC"),
+      like_count: 120, comments_count: 8, permalink: "https://instagram.com/p/dashboard"
+    )
+    media.instagram_insight_snapshots.create!(
+      instagram_account: account, captured_at: Time.zone.parse("2026-09-16 12:00:00 UTC"),
+      captured_on: Date.new(2026, 9, 16), metrics: { "views" => 2_400, "reach" => 1_900 }
+    )
+    login_as(@user)
+
+    get integrations_path
+
+    assert_response :success
+    assert_select "[data-testid=instagram-media-count]", text: "1"
+    assert_select "[data-testid=instagram-engagement-count]", text: "128"
+    assert_select "[data-testid=instagram-views-count]", text: "2,400"
+    assert_select "td", text: /A useful short-form lesson/
+    assert_select "a[href='https://instagram.com/p/dashboard']", text: "Open post"
   end
 
   test "queues sync and disconnects only the current user's account" do

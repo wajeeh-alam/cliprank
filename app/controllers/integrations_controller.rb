@@ -3,7 +3,7 @@ class IntegrationsController < ApplicationController
   class_attribute :instagram_client_factory, default: -> { Instagram::Client.new }
 
   def show
-    @instagram_accounts = current_user.instagram_accounts.includes(:instagram_media)
+    @instagram_accounts = current_user.instagram_accounts.includes(instagram_media: :instagram_insight_snapshots)
   end
 
   def instagram_connect

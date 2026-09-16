@@ -10,9 +10,9 @@ module Instagram
     GRAPH_HOST = "graph.instagram.com".freeze
     MAX_MEDIA_ITEMS = 200
     MAX_MEDIA_PAGES = 2
-    SCOPES = %w[instagram_business_basic].freeze
+    SCOPES = %w[instagram_business_basic instagram_business_manage_insights].freeze
     MEDIA_FIELDS = %w[id caption media_type media_product_type permalink thumbnail_url timestamp like_count comments_count].freeze
-    INSIGHT_METRICS = %w[impressions reach likes comments saved shares plays total_interactions].freeze
+    INSIGHT_METRICS = %w[views reach likes comments saved shares total_interactions].freeze
 
     class Error < StandardError
       attr_reader :status, :code

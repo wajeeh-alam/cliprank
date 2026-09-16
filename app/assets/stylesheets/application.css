@@ -100,7 +100,23 @@ input[type="email"], input[type="password"], input[type="text"], input[type="fil
 .evidence-columns ul { margin: 0; padding-left: 1.1rem; }
 .evidence-columns li { margin: .2rem 0; }
 .results-empty { margin-top: 2rem; }
+.integration-panel { display: grid; gap: .65rem; }
+.integration-panel > p { margin: 0; }
+.integration-actions { align-items: center; display: flex; gap: .75rem; }
+.integration-actions form { display: block; }
+.social-metric-grid { display: grid; gap: .75rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 1.25rem 0; }
+.social-metric-grid div { background: #f7f8fa; border-radius: 10px; padding: .8rem; }
+.social-metric-grid dt { color: #667085; font-size: .78rem; }
+.social-metric-grid dd { font-size: 1.2rem; font-weight: 750; margin: .25rem 0 0; }
+.social-content-heading { align-items: end; display: flex; justify-content: space-between; margin-top: 1rem; }
+.social-content-heading h3 { margin: 0; }
+.social-content-heading p { color: #667085; font-size: .85rem; margin: 0; }
+.table-scroll { overflow-x: auto; }
+.social-content-table { border-collapse: collapse; font-size: .86rem; min-width: 760px; width: 100%; }
+.social-content-table th, .social-content-table td { border-bottom: 1px solid #e5e7eb; padding: .7rem .55rem; text-align: left; vertical-align: top; }
+.social-content-table th { color: #667085; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
 @media (max-width: 640px) { .page-heading { align-items: flex-start; flex-direction: column; } .site-header nav { gap: .6rem; } .site-header { padding: 1rem; } .auth-card { margin: 2rem 1rem; padding: 1.5rem; } }
 @media (max-width: 760px) { .component-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .preview-panel { grid-template-columns: 1fr; } .preview-panel video { max-height: none; } }
 @media (max-width: 520px) { .result-card { grid-template-columns: 2.5rem 1fr; padding: .9rem; } .result-rank { height: 2.5rem; width: 2.5rem; } .component-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .evidence-columns { grid-template-columns: 1fr; } .section-heading { align-items: flex-start; flex-direction: column; gap: .5rem; } .preview-refresh-notice { align-items: flex-start; flex-wrap: wrap; } .preview-refresh-notice .button { margin-left: 1.2rem; } }
+@media (max-width: 640px) { .social-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .social-content-heading { align-items: flex-start; flex-direction: column; gap: .25rem; } }

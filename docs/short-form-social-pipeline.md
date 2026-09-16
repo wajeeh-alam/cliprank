@@ -62,6 +62,11 @@ account. Media and daily metric snapshots are protected by unique constraints,
 and disconnect cascades through imported history. The graph base URL is pinned
 to `https://graph.instagram.com`.
 
+OAuth requests `instagram_business_basic` for owned media and
+`instagram_business_manage_insights` for media analytics. The authenticated
+dashboard shows imported captions and baseline like/comment counts even when
+Meta does not return a richer insight metric for a particular media type.
+
 Meta does not expose a universal Instagram trends feed through this API. The
 product therefore labels evidence honestly: `Transcript` or `Creator history`.
 It never claims a creator-history pattern is a platform-wide trend.

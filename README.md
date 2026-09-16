@@ -87,9 +87,10 @@ file only. Never copy them into source, documentation, or CI configuration.
 
 Instagram is optional. To connect a Professional Business or Creator account,
 create a Meta app with Instagram Login, allow-list the callback URL, and set
-the blank `META_INSTAGRAM_*` entries in `.env`. ClipRank requests only the
-currently documented `instagram_business_basic` scope. Personal accounts are
-not supported. See Meta's [official Instagram API workspace](https://www.postman.com/meta/instagram/overview).
+the blank `META_INSTAGRAM_*` entries in `.env`. ClipRank requests the documented
+`instagram_business_basic` and `instagram_business_manage_insights` scopes so it
+can import owned captions, engagement counts, views, and reach. Personal
+accounts are not supported. See Meta's [official Instagram API workspace](https://www.postman.com/meta/instagram/overview).
 
 Endpoints:
 
