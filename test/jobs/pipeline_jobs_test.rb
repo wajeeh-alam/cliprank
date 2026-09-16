@@ -106,6 +106,44 @@ class PipelineJobsTest < ActiveSupport::TestCase
     assert_equal "running", run.status
     assert_equal 1, video.candidate_clips.count
     assert_enqueued_with(job: ExtractCandidateFeaturesJob, args: [ video.id, run.id, video.candidate_clips.first.id ])
+    payload = fake.candidate_calls.first.first
+    assert_equal "candidate-2", payload.fetch("generation_version")
+    assert_equal "audit", payload.fetch("processing_mode")
+    assert_equal 3_000, payload.fetch("min_duration_ms")
+    assert_equal 1, payload.fetch("target_count_min")
+  end
+
+  test "candidate generation persists one valid candidate for a five second short" do
+    video = create_video(duration_ms: 4_998)
+    run = video.processing_runs.create!(pipeline_version: video.pipeline_version, idempotency_key: "video/#{video.id}/short")
+    video.transcript_segments.create!(
+      sequence: 0, start_ms: 0, end_ms: 4_200, text: "One concise short-form idea.", words: [],
+      is_sentence_boundary_start: true, is_sentence_boundary_end: true, transcript_version: "whisper-1"
+    )
+    client = Object.new
+    client.define_singleton_method(:generate_candidates) do |payload, **|
+      {
+        "video_id" => payload.fetch("video_id"),
+        "generation_version" => payload.fetch("generation_version"),
+        "candidates" => [
+          {
+            "sequence" => 0,
+            "start_ms" => 0,
+            "end_ms" => 4_200,
+            "duration_ms" => 4_200,
+            "transcript" => "One concise short-form idea.",
+            "source_segment_sequences" => [ 0 ]
+          }
+        ]
+      }
+    end
+
+    GenerateCandidatesJob.perform_now(video.id, run.id, client: client)
+
+    assert_equal "extracting_features", video.reload.status
+    assert_equal "candidates_complete", run.reload.current_stage
+    assert_equal [ 4_200 ], video.candidate_clips.pluck(:duration_ms)
+    assert_enqueued_with(job: ExtractCandidateFeaturesJob, args: [ video.id, run.id, video.candidate_clips.first.id ])
   end
 
   test "a malformed candidate response is terminal and visible" do
@@ -165,5 +203,51 @@ class PipelineJobsTest < ActiveSupport::TestCase
     assert_equal 1, fake.candidate_calls.size
     assert_equal 2, run.reload.attempt_count
     assert_equal "candidates_complete", run.current_stage
+  end
+
+  test "a completed legacy generation resumes its persisted candidate version" do
+    video = create_video(duration_ms: 60_000)
+    run = video.processing_runs.create!(
+      pipeline_version: video.pipeline_version,
+      idempotency_key: "video/#{video.id}/legacy-generation",
+      status: "running",
+      current_stage: "candidates_complete"
+    )
+    candidate = create_candidate(video: video, generation_version: "candidate-1")
+
+    with_env("ML_GENERATION_VERSION", "candidate-2") do
+      GenerateCandidatesJob.perform_now(video.id, run.id)
+    end
+
+    assert_equal "candidate-1", run.reload.candidate_generation_version
+    assert_enqueued_with(job: ExtractCandidateFeaturesJob, args: [ video.id, run.id, candidate.id ])
+  end
+
+  test "a legacy run fails safely when multiple candidate generations are ambiguous" do
+    video = create_video(duration_ms: 60_000)
+    run = video.processing_runs.create!(
+      pipeline_version: video.pipeline_version,
+      idempotency_key: "video/#{video.id}/ambiguous-generation",
+      status: "running",
+      current_stage: "candidates_complete"
+    )
+    create_candidate(video: video, sequence: 0, generation_version: "candidate-1")
+    create_candidate(video: video, sequence: 1, generation_version: "candidate-2")
+
+    GenerateCandidatesJob.perform_now(video.id, run.id)
+
+    assert_equal "failed", run.reload.status
+    assert_equal "CANDIDATE_PROVENANCE_AMBIGUOUS", run.error_code
+    assert_empty enqueued_jobs
+  end
+
+  private
+
+  def with_env(key, value)
+    original = ENV[key]
+    ENV[key] = value
+    yield
+  ensure
+    original.nil? ? ENV.delete(key) : ENV[key] = original
   end
 end

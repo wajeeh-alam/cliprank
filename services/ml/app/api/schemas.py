@@ -11,6 +11,7 @@ class StrictModel(BaseModel):
 
 
 ContractVersion = Literal["1.0"]
+ProcessingMode = Literal["audit", "repurpose"]
 NonEmpty = Annotated[str, Field(min_length=1)]
 Millis = Annotated[int, Field(ge=0)]
 UnitFloat = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -88,6 +89,7 @@ class CandidateGenerationRequest(StrictModel):
     video_id: NonEmpty
     duration_ms: Millis
     generation_version: NonEmpty
+    processing_mode: ProcessingMode = "repurpose"
     min_duration_ms: Annotated[int, Field(gt=0)] = 15_000
     max_duration_ms: Annotated[int, Field(gt=0)] = 60_000
     target_count_min: Annotated[int, Field(ge=1)] = 10
@@ -100,6 +102,9 @@ class CandidateGenerationRequest(StrictModel):
             raise ValueError("max_duration_ms must be >= min_duration_ms")
         if self.target_count_max < self.target_count_min:
             raise ValueError("target_count_max must be >= target_count_min")
+        minimum = 3_000 if self.processing_mode == "audit" else 15_000
+        if self.min_duration_ms < minimum:
+            raise ValueError(f"{self.processing_mode} candidates must be at least {minimum // 1000} seconds")
         return self
 
 

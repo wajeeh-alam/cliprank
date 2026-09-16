@@ -8,13 +8,15 @@ class CandidateClip < ApplicationRecord
   has_many :candidate_scores, dependent: :restrict_with_exception
   has_many :ranking_runs, through: :candidate_scores
   has_many :exports, dependent: :restrict_with_exception
+  has_many :preview_artifacts, dependent: :restrict_with_exception
+  has_many :title_idea_sets, dependent: :destroy
   has_one_attached :preview
   has_one_attached :thumbnail
 
   validates :sequence, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :transcript, :generation_version, presence: true
   validates :start_ms, :end_ms, :duration_ms, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
-  validates :duration_ms, numericality: { in: 15_000..60_000 }
+  validates :duration_ms, numericality: { in: 3_000..60_000 }
   validate :timestamp_range
   validate :recommended_timestamp_range
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -64,7 +64,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.index ["video_id", "start_ms"], name: "index_candidate_clips_on_video_id_and_start_ms"
     t.index ["video_id", "status"], name: "index_candidate_clips_on_video_id_and_status"
     t.index ["video_id"], name: "index_candidate_clips_on_video_id"
-    t.check_constraint "duration_ms = (end_ms - start_ms) AND duration_ms >= 15000 AND duration_ms <= 60000", name: "candidate_clips_duration_range"
+    t.check_constraint "duration_ms = (end_ms - start_ms) AND duration_ms >= 3000 AND duration_ms <= 60000", name: "candidate_clips_duration_range"
     t.check_constraint "recommended_start_ms IS NULL AND recommended_end_ms IS NULL OR recommended_start_ms >= 0 AND recommended_start_ms < recommended_end_ms", name: "candidate_clips_recommended_range"
     t.check_constraint "sequence >= 0", name: "candidate_clips_sequence_non_negative"
     t.check_constraint "start_ms >= 0 AND start_ms < end_ms", name: "candidate_clips_timestamp_range"
@@ -154,8 +154,82 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'rendering'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text])", name: "exports_status_valid"
   end
 
+  create_table "instagram_accounts", force: :cascade do |t|
+    t.text "access_token_ciphertext", null: false
+    t.string "account_type", null: false
+    t.datetime "created_at", null: false
+    t.string "instagram_user_id", null: false
+    t.datetime "last_synced_at"
+    t.string "sync_error"
+    t.datetime "token_expires_at"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.string "username", null: false
+    t.index ["instagram_user_id"], name: "index_instagram_accounts_on_instagram_user_id", unique: true
+    t.index ["user_id", "instagram_user_id"], name: "index_instagram_accounts_on_user_and_instagram_user", unique: true
+    t.index ["user_id"], name: "index_instagram_accounts_on_user_id"
+    t.check_constraint "account_type::text = ANY (ARRAY['BUSINESS'::character varying, 'CREATOR'::character varying]::text[])", name: "instagram_accounts_account_type_valid"
+  end
+
+  create_table "instagram_insight_snapshots", force: :cascade do |t|
+    t.datetime "captured_at", null: false
+    t.date "captured_on", null: false
+    t.datetime "created_at", null: false
+    t.bigint "instagram_account_id", null: false
+    t.bigint "instagram_media_id", null: false
+    t.jsonb "metrics", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["instagram_account_id", "captured_on"], name: "index_instagram_insights_on_account_and_captured_on"
+    t.index ["instagram_account_id"], name: "index_instagram_insight_snapshots_on_instagram_account_id"
+    t.index ["instagram_media_id", "captured_on"], name: "index_instagram_insights_on_media_and_captured_on", unique: true
+    t.index ["instagram_media_id"], name: "index_instagram_insight_snapshots_on_instagram_media_id"
+    t.check_constraint "jsonb_typeof(metrics) = 'object'::text", name: "instagram_insight_snapshots_metrics_object"
+  end
+
+  create_table "instagram_media", force: :cascade do |t|
+    t.text "caption"
+    t.integer "comments_count"
+    t.datetime "created_at", null: false
+    t.bigint "instagram_account_id", null: false
+    t.string "instagram_media_id", null: false
+    t.integer "like_count"
+    t.string "media_product_type"
+    t.string "media_type", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "permalink"
+    t.datetime "published_at"
+    t.datetime "updated_at", null: false
+    t.index ["instagram_account_id", "instagram_media_id"], name: "index_instagram_media_on_account_and_instagram_media", unique: true
+    t.index ["instagram_account_id"], name: "index_instagram_media_on_instagram_account_id"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "instagram_media_metadata_object"
+  end
+
+  create_table "preview_artifacts", force: :cascade do |t|
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "duration_ms", null: false
+    t.bigint "end_ms", null: false
+    t.string "error_code"
+    t.text "error_message"
+    t.string "kind", null: false
+    t.bigint "ranking_run_id", null: false
+    t.string "render_version", null: false
+    t.bigint "start_ms", null: false
+    t.string "status", default: "requested", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_clip_id"], name: "index_preview_artifacts_on_candidate_clip_id"
+    t.index ["ranking_run_id", "candidate_clip_id", "kind", "render_version"], name: "index_preview_artifacts_on_run_candidate_kind_version", unique: true
+    t.index ["ranking_run_id", "status"], name: "index_preview_artifacts_on_ranking_run_id_and_status"
+    t.index ["ranking_run_id"], name: "index_preview_artifacts_on_ranking_run_id"
+    t.check_constraint "kind::text = ANY (ARRAY['preview'::character varying, 'thumbnail'::character varying]::text[])", name: "preview_artifacts_kind_valid"
+    t.check_constraint "start_ms >= 0 AND start_ms < end_ms AND duration_ms = (end_ms - start_ms)", name: "preview_artifacts_timestamp_range"
+    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying, 'rendering'::character varying, 'ready'::character varying, 'failed'::character varying]::text[])", name: "preview_artifacts_status_valid"
+  end
+
   create_table "processing_runs", force: :cascade do |t|
     t.integer "attempt_count", default: 0, null: false
+    t.string "candidate_generation_version"
+    t.string "candidate_processing_mode"
     t.datetime "completed_at"
     t.datetime "created_at", null: false
     t.string "current_stage"
@@ -172,6 +246,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.index ["video_id", "pipeline_version", "status"], name: "idx_on_video_id_pipeline_version_status_27b3ba7c54"
     t.index ["video_id"], name: "index_processing_runs_on_video_id"
     t.check_constraint "attempt_count >= 0", name: "processing_runs_attempt_count_non_negative"
+    t.check_constraint "candidate_processing_mode IS NULL OR (candidate_processing_mode::text = ANY (ARRAY['audit'::character varying, 'repurpose'::character varying]::text[]))", name: "processing_runs_candidate_mode_valid"
     t.check_constraint "jsonb_typeof(error_details) = 'object'::text", name: "processing_runs_error_details_object"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "processing_runs_status_valid"
   end
@@ -187,6 +262,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.string "scorer_version", null: false
     t.datetime "started_at"
     t.string "status", default: "pending", null: false
+    t.string "title_ideas_error"
+    t.string "title_ideas_status", default: "pending", null: false
+    t.string "title_ideas_version"
     t.datetime "updated_at", null: false
     t.bigint "video_id", null: false
     t.index ["processing_run_id", "feature_version", "scorer_version"], name: "index_ranking_runs_on_processing_and_versions", unique: true
@@ -195,6 +273,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
     t.index ["video_id"], name: "index_ranking_runs_on_video_id"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "ranking_runs_config_object"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "ranking_runs_status_valid"
+    t.check_constraint "title_ideas_status::text = ANY (ARRAY['pending'::character varying::text, 'generating'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "ranking_runs_title_ideas_status_valid"
+  end
+
+  create_table "title_idea_sets", force: :cascade do |t|
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.bigint "ranking_run_id", null: false
+    t.integer "sample_size", default: 0, null: false
+    t.string "source_type", null: false
+    t.datetime "updated_at", null: false
+    t.string "version", null: false
+    t.index ["candidate_clip_id"], name: "index_title_idea_sets_on_candidate_clip_id"
+    t.index ["ranking_run_id", "candidate_clip_id", "version"], name: "index_title_idea_sets_on_run_candidate_version", unique: true
+    t.index ["ranking_run_id"], name: "index_title_idea_sets_on_ranking_run_id"
+    t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "title_idea_sets_evidence_object"
+    t.check_constraint "sample_size >= 0", name: "title_idea_sets_sample_size_non_negative"
+    t.check_constraint "source_type::text = ANY (ARRAY['transcript'::character varying::text, 'instagram_history'::character varying::text])", name: "title_idea_sets_source_type_valid"
+  end
+
+  create_table "title_ideas", force: :cascade do |t|
+    t.string "angle", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.integer "rank", null: false
+    t.string "title", null: false
+    t.bigint "title_idea_set_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["title_idea_set_id", "rank"], name: "index_title_ideas_on_set_and_rank", unique: true
+    t.index ["title_idea_set_id"], name: "index_title_ideas_on_title_idea_set_id"
+    t.check_constraint "char_length(title::text) >= 1", name: "title_ideas_title_non_empty"
+    t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "title_ideas_evidence_object"
+    t.check_constraint "rank >= 1", name: "title_ideas_rank_positive"
   end
 
   create_table "transcript_segments", force: :cascade do |t|
@@ -259,9 +370,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_044500) do
   add_foreign_key "explanations", "candidate_scores", on_delete: :restrict
   add_foreign_key "exports", "candidate_clips", on_delete: :restrict
   add_foreign_key "exports", "users", on_delete: :restrict
+  add_foreign_key "instagram_accounts", "users", on_delete: :restrict
+  add_foreign_key "instagram_insight_snapshots", "instagram_accounts", on_delete: :cascade
+  add_foreign_key "instagram_insight_snapshots", "instagram_media", column: "instagram_media_id", on_delete: :cascade
+  add_foreign_key "instagram_media", "instagram_accounts", on_delete: :cascade
+  add_foreign_key "preview_artifacts", "candidate_clips", on_delete: :restrict
+  add_foreign_key "preview_artifacts", "ranking_runs", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
   add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict
+  add_foreign_key "title_idea_sets", "candidate_clips", on_delete: :cascade
+  add_foreign_key "title_idea_sets", "ranking_runs", on_delete: :cascade
+  add_foreign_key "title_ideas", "title_idea_sets", on_delete: :cascade
   add_foreign_key "transcript_segments", "videos", on_delete: :restrict
   add_foreign_key "videos", "users", on_delete: :restrict
 end

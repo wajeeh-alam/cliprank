@@ -46,6 +46,14 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
     end
   end
 
+  class MissingEvidenceRankClient < FakeRankClient
+    def rank(...)
+      response = super
+      CandidateFeatureSet.delete_all
+      response
+    end
+  end
+
   setup do
     ActiveJob::Base.queue_adapter = :test
     clear_enqueued_jobs
@@ -65,12 +73,14 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal({ "semantic" => 0.35, "hook" => 0.2, "structural" => 0.2, "delivery" => 0.15, "visual" => 0.1 }, ranking_run.config.fetch("weights"))
       assert_equal "succeeded", ranking_run.status
       assert_equal 2, ranking_run.candidate_scores.count
+      assert_equal 2, Explanation.joins(:candidate_score).where(candidate_scores: { ranking_run_id: ranking_run.id }).count
       assert_equal [ "ranked", "ranked" ], candidates.map { |candidate| candidate.reload.status }
       assert_equal "ranking_complete", run.reload.current_stage
       assert_equal "running", run.status
       assert_equal "generating_previews", video.reload.status
       assert_equal "video/#{video.id}/run/#{run.id}/rank", fake.calls.first.last
-      assert_empty enqueued_jobs
+      assert_enqueued_with(job: GenerateTitleIdeasJob, args: [ ranking_run.id ])
+      assert_enqueued_with(job: RenderPreviewsJob, args: [ video.id, run.id, ranking_run.id ])
     end
   end
 
@@ -106,6 +116,49 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal [ first_run.id, second_run.id ].sort, video.ranking_runs.pluck(:processing_run_id).sort
       assert_equal 2, fake.calls.size
     end
+  end
+
+  test "ranks only the candidate generation persisted on the processing run" do
+    video, run, expected = build_rankable_pipeline(count: 1)
+    stale = create_candidate(
+      video: video,
+      sequence: 20,
+      start_ms: 20_000,
+      end_ms: 40_000,
+      generation_version: "candidate-stale"
+    )
+    create_feature_set(candidate: stale, feature_version: "features-1")
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    ranked_ids = fake.calls.first.first.fetch("candidates").pluck("candidate_id")
+    assert_equal expected.map { |candidate| candidate.id.to_s }, ranked_ids
+    assert_not_includes ranked_ids, stale.id.to_s
+  end
+
+  test "accepts fewer than five long-form candidates when those are all distinct edits" do
+    video, run, = build_rankable_pipeline(count: 4)
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    assert_equal 4, fake.calls.first.first.fetch("candidates").length
+    assert_equal "ranking_complete", run.reload.current_stage
+  end
+
+  test "uses the processing run mode for the downstream quality minimum" do
+    video, run, candidates = build_rankable_pipeline(count: 4)
+    video.update!(duration_ms: 60_000)
+    CandidateFeatureSet.where(candidate_clip_id: candidates.drop(1).map(&:id)).delete_all
+    fake = FakeRankClient.new
+
+    RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+    assert_empty fake.calls
+    assert_equal "failed", run.reload.status
+    assert_equal "INSUFFICIENT_VALID_CANDIDATES", run.error_code
+    assert_equal 4, run.error_details.fetch("required_candidate_count")
   end
 
   test "does not rank before the feature barrier" do
@@ -147,6 +200,21 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
     end
   end
 
+  test "explanation failure rolls back every score before failing the run" do
+    with_env("ML_MIN_VALID_CANDIDATES", "1") do
+      video, run, = build_rankable_pipeline(count: 1)
+      fake = MissingEvidenceRankClient.new
+
+      RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+      ranking_run = video.reload.ranking_runs.first
+      assert_equal "failed", ranking_run.status
+      assert_equal "EXPLANATION_ERROR", run.reload.error_code
+      assert_empty ranking_run.candidate_scores
+      assert_empty Explanation.all
+    end
+  end
+
   private
 
   def build_rankable_pipeline(count: 2)
@@ -155,7 +223,9 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       pipeline_version: video.pipeline_version,
       idempotency_key: "video/#{video.id}/rank",
       status: "running",
-      current_stage: "features_complete"
+      current_stage: "features_complete",
+      candidate_generation_version: "candidate-1",
+      candidate_processing_mode: "repurpose"
     )
     candidates = count.times.map do |index|
       start_ms = index * 20_000

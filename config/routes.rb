@@ -17,5 +17,13 @@ Rails.application.routes.draw do
   post "login", to: "sessions#create"
   delete "logout", to: "sessions#destroy", as: :logout
 
-  resources :videos, only: %i[index new create show]
+  get "integrations", to: "integrations#show", as: :integrations
+  get "integrations/instagram/connect", to: "integrations#instagram_connect", as: :instagram_connect
+  get "integrations/instagram/callback", to: "integrations#instagram_callback", as: :instagram_callback
+  post "integrations/instagram/:id/sync", to: "integrations#instagram_sync", as: :instagram_sync
+  delete "integrations/instagram/:id", to: "integrations#instagram_disconnect", as: :instagram_disconnect
+
+  resources :videos, only: %i[index new create show] do
+    resources :preview_artifacts, only: :show
+  end
 end

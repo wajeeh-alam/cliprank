@@ -10,14 +10,34 @@ class RankCandidatesJob < ApplicationJob
     client ||= injected_client
     config = Pipeline::RankingConfig.for
     started, ranking_run_id = begin_ranking!(video_id, processing_run_id, config)
-    return if started == :skip
+    if started == :skip
+      run, = load_processing_records(video_id, processing_run_id)
+      ranking_run_id ||= run.ranking_runs.where(status: "succeeded").order(id: :desc).pick(:id)
+      if ranking_run_id
+        ranking_run = run.ranking_runs.find(ranking_run_id)
+        begin
+          Explanations::Generator.call(ranking_run)
+        rescue Explanations::Generator::Error => e
+          Rails.logger.warn("Explanation backfill skipped for ranking run #{ranking_run_id}: #{e.message}")
+        end
+        current_titles = ranking_run.title_ideas_status == "succeeded" &&
+          ranking_run.title_ideas_version == TitleIdeas::Generator::VERSION
+        enqueue_title_ideas_job!(ranking_run_id) unless current_titles
+        if run.reload.current_stage == "ranking_complete"
+          enqueue_preview_job!(video_id, processing_run_id, ranking_run_id)
+        end
+      end
+      return
+    end
 
     run, video = load_processing_records(video_id, processing_run_id)
     ranking_run = RankingRun.find(ranking_run_id)
     feature_version = ranking_run.feature_version
     scorer_version = ranking_run.scorer_version
     request_config = normalize_payload(ranking_run.config)
-    candidates = video.candidate_clips.order(:sequence, :id).each_with_object([]) do |candidate, ranked_input|
+    generation_version = resolve_candidate_generation_version!(run)
+    generated_candidates = video.candidate_clips.where(generation_version: generation_version).order(:sequence, :id)
+    candidates = generated_candidates.each_with_object([]) do |candidate, ranked_input|
       feature_set = candidate.candidate_feature_sets.find_by(feature_version: feature_version)
       next if feature_set.nil? || candidate.status == "failed"
 
@@ -39,7 +59,7 @@ class RankCandidatesJob < ApplicationJob
         }
       }
     end
-    minimum = [ ENV.fetch("ML_MIN_VALID_CANDIDATES", "5").to_i, 1 ].max
+    minimum = minimum_valid_candidates(video, processing_run: run, available_count: generated_candidates.size)
     if candidates.length < minimum
       raise Ml::Client::PermanentError.new(
         "Not enough candidates have valid feature sets for ranking",
@@ -68,7 +88,11 @@ class RankCandidatesJob < ApplicationJob
       candidate_ids: candidates.map { |candidate| candidate.fetch("candidate_id") },
       expected_weights: request_config.fetch("weights")
     )
-    mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
+    result = mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
+    if result == :succeeded
+      enqueue_title_ideas_job!(ranking_run.id)
+      enqueue_preview_job!(video.id, run.id, ranking_run.id)
+    end
   rescue Ml::Client::PermanentError => e
     record_ranking_terminal_error(video_id, processing_run_id, e)
     nil
@@ -85,6 +109,14 @@ class RankCandidatesJob < ApplicationJob
       "The ranking result conflicted with an existing result",
       code: "DUPLICATE_RESULT",
       details: { "class" => e.class.name }
+    )
+    record_ranking_terminal_error(video_id, processing_run_id, error)
+    nil
+  rescue Explanations::Generator::Error => e
+    error = Ml::Client::PermanentError.new(
+      "The deterministic explanation could not be generated",
+      code: "EXPLANATION_ERROR",
+      details: { "message" => e.message }
     )
     record_ranking_terminal_error(video_id, processing_run_id, error)
     nil

@@ -12,6 +12,7 @@ module Pipeline
       "features_complete" => 65,
       "ranking" => 70,
       "ranking_complete" => 80,
+      "generating_previews" => 90,
       "complete" => 100
     }.freeze
 
@@ -141,6 +142,16 @@ module Pipeline
       RankCandidatesJob.perform_later(video_id, processing_run_id)
     end
 
+    # Called only after the ranking transaction has returned successfully.  The
+    # job itself remains idempotent, so duplicate delivery is safe.
+    def enqueue_preview_job!(video_id, processing_run_id, ranking_run_id)
+      RenderPreviewsJob.perform_later(video_id, processing_run_id, ranking_run_id)
+    end
+
+    def enqueue_title_ideas_job!(ranking_run_id)
+      TitleIdeas::Enqueuer.call(RankingRun.find(ranking_run_id))
+    end
+
     def begin_ranking!(video_id, processing_run_id, config)
       ProcessingRun.transaction do
         run = ProcessingRun.lock.find(processing_run_id)
@@ -216,6 +227,10 @@ module Pipeline
           )
           candidate.update!(status: "ranked")
         end
+        # Explanations are deterministic templates over the rows just written.
+        # Keep them in this transaction so a visible ranking is always fully
+        # explainable and a retry cannot expose a partial result set.
+        Explanations::Generator.call(ranking_run)
         ranking_run.update!(status: "succeeded", completed_at: Time.current, error_code: nil, error_message: nil)
         run.update!(status: "running", current_stage: "ranking_complete", error_code: nil, error_message: nil)
         video.update!(status: "generating_previews", processing_error_code: nil, processing_error_message: nil, processing_error_details: {})
@@ -335,7 +350,7 @@ module Pipeline
       end
 
       valid_count = candidates.count { |candidate| candidate.candidate_feature_sets.exists?(feature_version: feature_version) }
-      minimum = [ ENV.fetch("ML_MIN_VALID_CANDIDATES", "5").to_i, 1 ].max
+      minimum = minimum_valid_candidates(video, processing_run: run, available_count: candidates.length)
       if valid_count < minimum
         details = run.error_details.is_a?(Hash) ? run.error_details.deep_dup : {}
         details["valid_candidate_count"] = valid_count
@@ -380,6 +395,32 @@ module Pipeline
       nil
     rescue ActiveRecord::RecordNotFound
       nil
+    end
+
+    def minimum_valid_candidates(video, processing_run: nil, available_count: nil)
+      configured = ENV["ML_MIN_VALID_CANDIDATES"]
+      return [ configured.to_i, 1 ].max if configured.present?
+
+      mode = processing_run&.candidate_processing_mode.presence
+      mode ||= video.duration_ms.to_i <= 60_000 ? "audit" : "repurpose"
+      desired = mode == "audit" ? 1 : 5
+      available_count ? [ [ desired, available_count ].min, 1 ].max : desired
+    end
+
+    def resolve_candidate_generation_version!(run)
+      return run.candidate_generation_version if run.candidate_generation_version.present?
+
+      generation_versions = run.video.candidate_clips.distinct.pluck(:generation_version)
+      if generation_versions.many?
+        raise Ml::Client::PermanentError.new(
+          "The processing run cannot be matched to a candidate generation",
+          code: "CANDIDATE_PROVENANCE_AMBIGUOUS",
+          details: { "generation_count" => generation_versions.length }
+        )
+      end
+      generation_version = generation_versions.first || ENV.fetch("ML_GENERATION_VERSION", "candidate-2")
+      run.update!(candidate_generation_version: generation_version)
+      generation_version
     end
 
     def client_for(injected)
@@ -455,7 +496,7 @@ module Pipeline
       data
     end
 
-    def validate_candidate_data!(data, video_id:, generation_version:, duration_ms:)
+    def validate_candidate_data!(data, video_id:, generation_version:, duration_ms:, processing_mode: "repurpose")
       data = normalize_payload(data)
       unless data.is_a?(Hash) && data["video_id"].to_s == video_id.to_s && data["generation_version"].to_s == generation_version.to_s && data["candidates"].is_a?(Array)
         raise Ml::Client::ContractError.new("The candidate response is invalid", code: "MALFORMED_RESPONSE")
@@ -472,8 +513,10 @@ module Pipeline
           raise Ml::Client::ContractError.new("The candidate response has invalid timestamps", code: "INVALID_TIMESTAMPS")
         end
         expected_duration = candidate["end_ms"] - candidate["start_ms"]
-        unless candidate["duration_ms"] == expected_duration && candidate["duration_ms"].between?(15_000, 60_000)
-          raise Ml::Client::ContractError.new("Candidate duration must be between 15 and 60 seconds", code: "INVALID_CANDIDATE_DURATION")
+        minimum_duration = processing_mode.to_s == "audit" ? 3_000 : 15_000
+        unless candidate["duration_ms"] == expected_duration && candidate["duration_ms"].between?(minimum_duration, 60_000)
+          range = processing_mode.to_s == "audit" ? "3 and 60" : "15 and 60"
+          raise Ml::Client::ContractError.new("Candidate duration must be between #{range} seconds", code: "INVALID_CANDIDATE_DURATION")
         end
         if duration_ms && candidate["end_ms"] > duration_ms
           raise Ml::Client::ContractError.new("Candidate exceeds source duration", code: "INVALID_TIMESTAMPS")
