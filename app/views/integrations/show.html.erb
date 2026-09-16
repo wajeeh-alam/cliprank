@@ -9,18 +9,62 @@
     </div>
   </div>
 
-  <section class="empty-state" aria-labelledby="instagram-heading">
+  <section class="empty-state integration-panel" aria-labelledby="instagram-heading">
     <h2 id="instagram-heading">Instagram Professional</h2>
     <% if @instagram_accounts.empty? %>
       <p>No Instagram account is connected.</p>
       <%= link_to "Connect Instagram", instagram_connect_path, class: "button" %>
     <% else %>
       <% @instagram_accounts.each do |account| %>
+        <% media_items = account.instagram_media.sort_by { |item| item.published_at || Time.at(0) }.reverse %>
+        <% latest_insights = media_items.filter_map { |item| item.instagram_insight_snapshots.max_by(&:captured_at) } %>
+        <% total_engagement = media_items.sum { |item| item.like_count.to_i + item.comments_count.to_i } %>
+        <% total_views = latest_insights.sum { |snapshot| snapshot.metrics["views"].to_i } %>
+        <% total_reach = latest_insights.sum { |snapshot| snapshot.metrics["reach"].to_i } %>
         <p><strong>@<%= account.username %></strong> · <%= account.account_type.titleize %> · <%= account.instagram_media.size %> media items</p>
         <% if account.last_synced_at %><p>Last synced <%= l(account.last_synced_at, format: :long) %></p><% end %>
         <% if account.sync_error %><p role="alert">Sync issue: <%= account.sync_error %></p><% end %>
-        <%= button_to "Sync now", instagram_sync_path(account), method: :post, class: "button" %>
-        <%= button_to "Disconnect", instagram_disconnect_path(account), method: :delete, class: "button button-secondary" %>
+        <div class="integration-actions">
+          <%= button_to "Sync now", instagram_sync_path(account), method: :post, class: "button" %>
+          <%= button_to "Disconnect", instagram_disconnect_path(account), method: :delete, class: "button button-secondary" %>
+        </div>
+
+        <dl class="social-metric-grid" aria-label="Imported Instagram analytics">
+          <div><dt>Imported posts</dt><dd data-testid="instagram-media-count"><%= number_with_delimiter(media_items.size) %></dd></div>
+          <div><dt>Videos</dt><dd><%= number_with_delimiter(media_items.count { |item| item.media_type == "VIDEO" }) %></dd></div>
+          <div><dt>Likes + comments</dt><dd data-testid="instagram-engagement-count"><%= number_with_delimiter(total_engagement) %></dd></div>
+          <div><dt>Views</dt><dd data-testid="instagram-views-count"><%= latest_insights.any? ? number_with_delimiter(total_views) : "Pending permission" %></dd></div>
+          <div><dt>Reach</dt><dd><%= latest_insights.any? ? number_with_delimiter(total_reach) : "Pending permission" %></dd></div>
+          <div><dt>Captioned posts</dt><dd><%= number_with_delimiter(media_items.count { |item| item.caption.present? }) %></dd></div>
+        </dl>
+
+        <% if media_items.any? && latest_insights.empty? %>
+          <p class="fallback-notice">Basic content and engagement counts are synced. Reconnect once to grant the analytics permission for views and reach.</p>
+        <% end %>
+
+        <% if media_items.any? %>
+          <div class="social-content-heading">
+            <h3>Recent imported content</h3>
+            <p>Used privately as creator-history evidence for relevant title ideas.</p>
+          </div>
+          <div class="table-scroll">
+            <table class="social-content-table">
+              <thead><tr><th>Published</th><th>Type</th><th>Caption</th><th>Likes</th><th>Comments</th><th></th></tr></thead>
+              <tbody>
+                <% media_items.first(20).each do |item| %>
+                  <tr>
+                    <td><%= item.published_at ? l(item.published_at.to_date, format: :long) : "Unknown" %></td>
+                    <td><%= item.media_product_type.presence || item.media_type.titleize %></td>
+                    <td><%= truncate(item.caption.presence || "No caption", length: 120) %></td>
+                    <td><%= number_with_delimiter(item.like_count || 0) %></td>
+                    <td><%= number_with_delimiter(item.comments_count || 0) %></td>
+                    <td><%= link_to "Open post", item.permalink, target: "_blank", rel: "noopener noreferrer" if item.permalink.present? %></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
       <% end %>
     <% end %>
   </section>

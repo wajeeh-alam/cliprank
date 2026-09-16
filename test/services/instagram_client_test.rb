@@ -33,7 +33,7 @@ class InstagramClientTest < ActiveSupport::TestCase
 
     assert_equal "www.instagram.com", uri.host
     query = URI.decode_www_form(uri.query).to_h
-    assert_equal "instagram_business_basic", query.fetch("scope")
+    assert_equal "instagram_business_basic,instagram_business_manage_insights", query.fetch("scope")
     assert_equal "csrf-state", query.fetch("state")
   end
 
@@ -43,7 +43,7 @@ class InstagramClientTest < ActiveSupport::TestCase
       Response.new("200", JSON.generate(access_token: "long-lived", expires_in: 5_000)),
       Response.new("200", JSON.generate(access_token: "refreshed", expires_in: 5_000))
     ]
-    client = Instagram::Client.new(app_id: "app-id", app_secret: "app-secret", http_class: FakeHttp)
+    client = Instagram::Client.new(app_id: "app-id", app_secret: "app-secret", api_version: nil, http_class: FakeHttp)
 
     client.exchange_code(code: "authorization-code", redirect_uri: "https://cliprank.test/callback")
     client.exchange_long_lived_token(access_token: "short-lived")
