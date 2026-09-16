@@ -1,6 +1,6 @@
 <% content_for :title, "#{@video.title} · ClipRank" %>
 
-<% if @ranking_run.present? && @preview_pending %>
+<% if @ranking_run.present? && (@preview_pending || @title_ideas_pending) %>
   <% content_for :head do %>
     <meta http-equiv="refresh" content="10">
   <% end %>
@@ -64,6 +64,7 @@
           <% artifact_failed = [preview_artifact, thumbnail_artifact].compact.find(&:failed?) %>
           <% artifact_rendering = [preview_artifact, thumbnail_artifact].compact.any?(&:rendering?) %>
           <% explanation = score.explanations.find { |item| item.explanation_version == Explanations::Generator::VERSION } || score.explanations.max_by(&:created_at) %>
+          <% title_idea_set = @title_idea_sets_by_candidate[clip.id] %>
           <li class="result-card <%= "result-card-top-#{score.rank}" if score.rank <= 3 %>">
             <div class="result-rank" aria-label="Rank <%= score.rank %>"><span>#</span><%= score.rank %></div>
             <div class="result-main">
@@ -109,6 +110,30 @@
               </div>
 
               <p class="result-transcript"><%= clip.transcript %></p>
+
+              <div class="title-ideas" aria-label="Title ideas">
+                <div class="title-ideas-heading">
+                  <div>
+                    <h4>Title ideas</h4>
+                    <p>Deterministic suggestions grounded in this clip's transcript and topic.</p>
+                  </div>
+                  <% if title_idea_set.present? %>
+                    <span class="source-badge"><%= title_idea_set.source_type == "instagram_history" ? "Creator history" : "Transcript" %></span>
+                  <% end %>
+                </div>
+                <% if title_idea_set.present? %>
+                  <ol>
+                    <% title_idea_set.title_ideas.sort_by(&:rank).each do |idea| %>
+                      <li><span><%= idea.title %></span><small><%= idea.angle.humanize %></small></li>
+                    <% end %>
+                  </ol>
+                  <p class="title-ideas-evidence"><%= title_idea_set.evidence["label"] %></p>
+                <% elsif @ranking_run.title_ideas_status == "failed" && @ranking_run.title_ideas_version == TitleIdeas::Generator::VERSION %>
+                  <p class="title-ideas-pending">Title ideas are unavailable for this run.</p>
+                <% else %>
+                  <p class="title-ideas-pending">Title ideas are being prepared.</p>
+                <% end %>
+              </div>
 
               <dl class="component-grid" aria-label="Score components">
                 <% [["Content quality", score.content_quality], ["Hook", score.hook], ["Delivery", score.delivery], ["Pacing", score.pacing], ["Visual engagement", score.visual_engagement], ["Standalone clarity", score.standalone_clarity]].each do |label, value| %>

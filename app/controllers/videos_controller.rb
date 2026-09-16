@@ -51,6 +51,7 @@ class VideosController < ApplicationController
     @results_fallback = @ranking_run.present? && @processing_run.present? && @ranking_run.processing_run_id != @processing_run.id
     @ranked_scores = []
     @preview_artifacts_by_candidate = {}
+    @title_ideas_pending = false
     return unless @ranking_run
 
     all_scores = @ranking_run.candidate_scores
@@ -61,12 +62,25 @@ class VideosController < ApplicationController
     ).count
     @results_pending = all_scores.count.zero? || owned_scores.count != all_scores.count || explained_count != all_scores.count
     @preview_pending = @ranking_run.present? && !@video.complete? && !@video.failed?
+    current_title_version = @ranking_run.title_ideas_version == TitleIdeas::Generator::VERSION
+    @title_ideas_pending = !current_title_version || %w[pending generating].include?(@ranking_run.title_ideas_status)
+    if !current_title_version || @ranking_run.title_ideas_status == "pending"
+      begin
+        TitleIdeas::Enqueuer.call(@ranking_run)
+      rescue StandardError => e
+        Rails.logger.warn("Title idea backfill could not be queued for ranking run #{@ranking_run.id}: #{e.class}")
+      end
+    end
     return if @results_pending
 
     @ranked_scores = owned_scores
       .includes(:explanations, candidate_clip: :candidate_feature_sets)
       .order(:rank, :id)
       .limit(5)
+    @title_idea_sets_by_candidate = TitleIdeaSet
+      .where(ranking_run_id: @ranking_run.id, candidate_clip_id: @ranked_scores.map(&:candidate_clip_id), version: TitleIdeas::Generator::VERSION)
+      .includes(:title_ideas)
+      .index_by(&:candidate_clip_id)
     load_preview_artifacts
   end
 

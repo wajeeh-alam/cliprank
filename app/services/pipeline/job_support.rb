@@ -148,6 +148,10 @@ module Pipeline
       RenderPreviewsJob.perform_later(video_id, processing_run_id, ranking_run_id)
     end
 
+    def enqueue_title_ideas_job!(ranking_run_id)
+      TitleIdeas::Enqueuer.call(RankingRun.find(ranking_run_id))
+    end
+
     def begin_ranking!(video_id, processing_run_id, config)
       ProcessingRun.transaction do
         run = ProcessingRun.lock.find(processing_run_id)

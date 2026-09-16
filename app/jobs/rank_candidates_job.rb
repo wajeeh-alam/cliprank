@@ -14,12 +14,18 @@ class RankCandidatesJob < ApplicationJob
       run, = load_processing_records(video_id, processing_run_id)
       ranking_run_id ||= run.ranking_runs.where(status: "succeeded").order(id: :desc).pick(:id)
       if ranking_run_id
+        ranking_run = run.ranking_runs.find(ranking_run_id)
         begin
-          Explanations::Generator.call(run.ranking_runs.find(ranking_run_id))
+          Explanations::Generator.call(ranking_run)
         rescue Explanations::Generator::Error => e
           Rails.logger.warn("Explanation backfill skipped for ranking run #{ranking_run_id}: #{e.message}")
         end
-        enqueue_preview_job!(video_id, processing_run_id, ranking_run_id) if run.reload.current_stage == "ranking_complete"
+        current_titles = ranking_run.title_ideas_status == "succeeded" &&
+          ranking_run.title_ideas_version == TitleIdeas::Generator::VERSION
+        enqueue_title_ideas_job!(ranking_run_id) unless current_titles
+        if run.reload.current_stage == "ranking_complete"
+          enqueue_preview_job!(video_id, processing_run_id, ranking_run_id)
+        end
       end
       return
     end
@@ -83,7 +89,10 @@ class RankCandidatesJob < ApplicationJob
       expected_weights: request_config.fetch("weights")
     )
     result = mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
-    enqueue_preview_job!(video.id, run.id, ranking_run.id) if result == :succeeded
+    if result == :succeeded
+      enqueue_title_ideas_job!(ranking_run.id)
+      enqueue_preview_job!(video.id, run.id, ranking_run.id)
+    end
   rescue Ml::Client::PermanentError => e
     record_ranking_terminal_error(video_id, processing_run_id, e)
     nil

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_100002) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -262,6 +262,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_100002) do
     t.string "scorer_version", null: false
     t.datetime "started_at"
     t.string "status", default: "pending", null: false
+    t.string "title_ideas_error"
+    t.string "title_ideas_status", default: "pending", null: false
+    t.string "title_ideas_version"
     t.datetime "updated_at", null: false
     t.bigint "video_id", null: false
     t.index ["processing_run_id", "feature_version", "scorer_version"], name: "index_ranking_runs_on_processing_and_versions", unique: true
@@ -270,6 +273,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_100002) do
     t.index ["video_id"], name: "index_ranking_runs_on_video_id"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "ranking_runs_config_object"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "ranking_runs_status_valid"
+    t.check_constraint "title_ideas_status::text = ANY (ARRAY['pending'::character varying::text, 'generating'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "ranking_runs_title_ideas_status_valid"
+  end
+
+  create_table "title_idea_sets", force: :cascade do |t|
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.bigint "ranking_run_id", null: false
+    t.integer "sample_size", default: 0, null: false
+    t.string "source_type", null: false
+    t.datetime "updated_at", null: false
+    t.string "version", null: false
+    t.index ["candidate_clip_id"], name: "index_title_idea_sets_on_candidate_clip_id"
+    t.index ["ranking_run_id", "candidate_clip_id", "version"], name: "index_title_idea_sets_on_run_candidate_version", unique: true
+    t.index ["ranking_run_id"], name: "index_title_idea_sets_on_ranking_run_id"
+    t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "title_idea_sets_evidence_object"
+    t.check_constraint "sample_size >= 0", name: "title_idea_sets_sample_size_non_negative"
+    t.check_constraint "source_type::text = ANY (ARRAY['transcript'::character varying::text, 'instagram_history'::character varying::text])", name: "title_idea_sets_source_type_valid"
+  end
+
+  create_table "title_ideas", force: :cascade do |t|
+    t.string "angle", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.integer "rank", null: false
+    t.string "title", null: false
+    t.bigint "title_idea_set_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["title_idea_set_id", "rank"], name: "index_title_ideas_on_set_and_rank", unique: true
+    t.index ["title_idea_set_id"], name: "index_title_ideas_on_title_idea_set_id"
+    t.check_constraint "char_length(title::text) >= 1", name: "title_ideas_title_non_empty"
+    t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "title_ideas_evidence_object"
+    t.check_constraint "rank >= 1", name: "title_ideas_rank_positive"
   end
 
   create_table "transcript_segments", force: :cascade do |t|
@@ -343,6 +379,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_100002) do
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
   add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict
+  add_foreign_key "title_idea_sets", "candidate_clips", on_delete: :cascade
+  add_foreign_key "title_idea_sets", "ranking_runs", on_delete: :cascade
+  add_foreign_key "title_ideas", "title_idea_sets", on_delete: :cascade
   add_foreign_key "transcript_segments", "videos", on_delete: :restrict
   add_foreign_key "videos", "users", on_delete: :restrict
 end

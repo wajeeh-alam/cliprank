@@ -79,6 +79,15 @@ input[type="email"], input[type="password"], input[type="text"], input[type="fil
 .clip-score span { color: #667085; font-size: .85rem; margin-left: .2rem; }
 .clip-score small { color: #667085; font-size: .7rem; grid-column: 1 / -1; justify-self: end; margin-top: .3rem; }
 .result-transcript { border-left: 3px solid #d9def1; color: #344054; margin: 1rem 0; padding-left: .8rem; }
+.title-ideas { background: #f8f9ff; border: 1px solid #dfe4fa; border-radius: 10px; margin: 1rem 0; padding: .85rem 1rem; }
+.title-ideas-heading { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; }
+.title-ideas h4 { margin: 0; }
+.title-ideas-heading p, .title-ideas-evidence, .title-ideas-pending { color: #667085; font-size: .82rem; margin: .25rem 0 0; }
+.source-badge { background: #e6eaff; border-radius: 999px; color: #3047b5; font-size: .72rem; font-weight: 750; padding: .3rem .55rem; white-space: nowrap; }
+.title-ideas ol { display: grid; gap: .35rem; margin: .75rem 0 0; padding-left: 1.25rem; }
+.title-ideas li { align-items: baseline; display: flex; gap: .65rem; padding-left: .2rem; }
+.title-ideas li span { font-weight: 650; }
+.title-ideas li small { color: #667085; font-size: .72rem; }
 .component-grid { display: grid; gap: .55rem; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0; }
 .component-grid div { background: #f7f8fa; border-radius: 8px; padding: .6rem .55rem; }
 .component-grid dt { color: #667085; font-size: .72rem; line-height: 1.2; }

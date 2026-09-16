@@ -79,6 +79,7 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal "running", run.status
       assert_equal "generating_previews", video.reload.status
       assert_equal "video/#{video.id}/run/#{run.id}/rank", fake.calls.first.last
+      assert_enqueued_with(job: GenerateTitleIdeasJob, args: [ ranking_run.id ])
       assert_enqueued_with(job: RenderPreviewsJob, args: [ video.id, run.id, ranking_run.id ])
     end
   end
