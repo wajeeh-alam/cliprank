@@ -1,0 +1,95 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ClipRank: Start",
+      "type": "shell",
+      "command": "docker compose up --build -d",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "ClipRank: Logs",
+      "type": "shell",
+      "command": "docker compose logs -f web worker ml",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "ClipRank: Stop",
+      "type": "shell",
+      "command": "docker compose down",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: Open app",
+      "type": "shell",
+      "command": "open http://localhost:55030",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "dependsOn": "ClipRank: Start",
+      "presentation": { "reveal": "silent", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: Rails tests",
+      "type": "shell",
+      "command": "docker compose run --rm -e RAILS_ENV=test -e DATABASE_URL= web sh -lc 'export DATABASE_URL=\"postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/cliprank_test\"; bin/rails db:prepare test'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "ClipRank: RuboCop",
+      "type": "shell",
+      "command": "docker compose run --rm web bin/rubocop",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: Security scan",
+      "type": "shell",
+      "command": "docker compose run --rm web bin/brakeman --no-pager",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: Dependency audit",
+      "type": "shell",
+      "command": "docker compose run --rm web sh -lc 'bin/bundler-audit check --update && bin/importmap audit'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: ML tests",
+      "type": "shell",
+      "command": "docker compose run --rm -v \"${workspaceFolder}/services/ml:/src\" -w /src ml sh -lc \"pip install --no-cache-dir -e '.[dev]' >/dev/null && pytest -q\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ClipRank: Full check",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "ClipRank: Rails tests",
+        "ClipRank: RuboCop",
+        "ClipRank: Security scan",
+        "ClipRank: Dependency audit",
+        "ClipRank: ML tests"
+      ],
+      "problemMatcher": [],
+      "group": "test"
+    }
+  ]
+}

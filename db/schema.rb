@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -40,6 +40,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.bigint "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "brand_profiles", force: :cascade do |t|
+    t.text "audience", null: false
+    t.jsonb "avoided_terms", default: [], null: false
+    t.string "brand_name", null: false
+    t.jsonb "content_pillars", default: [], null: false
+    t.datetime "created_at", null: false
+    t.text "default_cta", default: "", null: false
+    t.text "description", null: false
+    t.jsonb "example_posts", default: [], null: false
+    t.jsonb "preferred_terms", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.text "voice", null: false
+    t.index ["user_id"], name: "index_brand_profiles_on_user_id", unique: true
+    t.check_constraint "jsonb_typeof(avoided_terms) = 'array'::text", name: "brand_profiles_avoided_terms_array"
+    t.check_constraint "jsonb_typeof(content_pillars) = 'array'::text", name: "brand_profiles_content_pillars_array"
+    t.check_constraint "jsonb_typeof(example_posts) = 'array'::text", name: "brand_profiles_example_posts_array"
+    t.check_constraint "jsonb_typeof(preferred_terms) = 'array'::text", name: "brand_profiles_preferred_terms_array"
   end
 
   create_table "candidate_clips", force: :cascade do |t|
@@ -119,6 +139,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.check_constraint "visual_engagement >= 0::numeric AND visual_engagement <= 100::numeric", name: "candidate_scores_visual_engagement_range"
   end
 
+  create_table "draft_variants", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "cta"
+    t.text "description", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.jsonb "hashtags", default: [], null: false
+    t.string "platform", null: false
+    t.bigint "publishing_draft_id", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index ["publishing_draft_id", "platform"], name: "index_draft_variants_on_publishing_draft_id_and_platform", unique: true
+    t.index ["publishing_draft_id"], name: "index_draft_variants_on_publishing_draft_id"
+    t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "draft_variants_evidence_object"
+    t.check_constraint "jsonb_typeof(hashtags) = 'array'::text", name: "draft_variants_hashtags_array"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying, 'linkedin'::character varying]::text[])", name: "draft_variants_platform_valid"
+  end
+
   create_table "explanations", force: :cascade do |t|
     t.bigint "candidate_score_id", null: false
     t.datetime "created_at", null: false
@@ -168,7 +205,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.index ["instagram_user_id"], name: "index_instagram_accounts_on_instagram_user_id", unique: true
     t.index ["user_id", "instagram_user_id"], name: "index_instagram_accounts_on_user_and_instagram_user", unique: true
     t.index ["user_id"], name: "index_instagram_accounts_on_user_id"
-    t.check_constraint "account_type::text = ANY (ARRAY['BUSINESS'::character varying, 'CREATOR'::character varying]::text[])", name: "instagram_accounts_account_type_valid"
+    t.check_constraint "account_type::text = ANY (ARRAY['BUSINESS'::character varying::text, 'CREATOR'::character varying::text])", name: "instagram_accounts_account_type_valid"
   end
 
   create_table "instagram_insight_snapshots", force: :cascade do |t|
@@ -204,6 +241,51 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "instagram_media_metadata_object"
   end
 
+  create_table "linkedin_accounts", force: :cascade do |t|
+    t.text "access_token_ciphertext", null: false
+    t.datetime "created_at", null: false
+    t.string "display_name", null: false
+    t.datetime "last_synced_at"
+    t.string "linkedin_member_id", null: false
+    t.string "sync_error"
+    t.datetime "token_expires_at"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["linkedin_member_id"], name: "index_linkedin_accounts_on_linkedin_member_id", unique: true
+    t.index ["user_id", "linkedin_member_id"], name: "index_linkedin_accounts_on_user_and_member", unique: true
+    t.index ["user_id"], name: "index_linkedin_accounts_on_user_id"
+  end
+
+  create_table "linkedin_insight_snapshots", force: :cascade do |t|
+    t.datetime "captured_at", null: false
+    t.date "captured_on", null: false
+    t.datetime "created_at", null: false
+    t.bigint "linkedin_account_id", null: false
+    t.bigint "linkedin_post_id", null: false
+    t.jsonb "metrics", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["linkedin_account_id", "captured_on"], name: "index_linkedin_insights_on_account_and_captured_on"
+    t.index ["linkedin_account_id"], name: "index_linkedin_insight_snapshots_on_linkedin_account_id"
+    t.index ["linkedin_post_id", "captured_on"], name: "index_linkedin_insights_on_post_and_captured_on", unique: true
+    t.index ["linkedin_post_id"], name: "index_linkedin_insight_snapshots_on_linkedin_post_id"
+    t.check_constraint "jsonb_typeof(metrics) = 'object'::text", name: "linkedin_insight_snapshots_metrics_object"
+  end
+
+  create_table "linkedin_posts", force: :cascade do |t|
+    t.text "commentary"
+    t.string "content_type"
+    t.datetime "created_at", null: false
+    t.bigint "linkedin_account_id", null: false
+    t.string "linkedin_post_urn", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "permalink"
+    t.datetime "published_at"
+    t.datetime "updated_at", null: false
+    t.index ["linkedin_account_id", "linkedin_post_urn"], name: "index_linkedin_posts_on_account_and_urn", unique: true
+    t.index ["linkedin_account_id"], name: "index_linkedin_posts_on_linkedin_account_id"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "linkedin_posts_metadata_object"
+  end
+
   create_table "preview_artifacts", force: :cascade do |t|
     t.bigint "candidate_clip_id", null: false
     t.datetime "created_at", null: false
@@ -221,9 +303,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.index ["ranking_run_id", "candidate_clip_id", "kind", "render_version"], name: "index_preview_artifacts_on_run_candidate_kind_version", unique: true
     t.index ["ranking_run_id", "status"], name: "index_preview_artifacts_on_ranking_run_id_and_status"
     t.index ["ranking_run_id"], name: "index_preview_artifacts_on_ranking_run_id"
-    t.check_constraint "kind::text = ANY (ARRAY['preview'::character varying, 'thumbnail'::character varying]::text[])", name: "preview_artifacts_kind_valid"
+    t.check_constraint "kind::text = ANY (ARRAY['preview'::character varying::text, 'thumbnail'::character varying::text])", name: "preview_artifacts_kind_valid"
     t.check_constraint "start_ms >= 0 AND start_ms < end_ms AND duration_ms = (end_ms - start_ms)", name: "preview_artifacts_timestamp_range"
-    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying, 'rendering'::character varying, 'ready'::character varying, 'failed'::character varying]::text[])", name: "preview_artifacts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'rendering'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text])", name: "preview_artifacts_status_valid"
   end
 
   create_table "processing_runs", force: :cascade do |t|
@@ -246,9 +328,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
     t.index ["video_id", "pipeline_version", "status"], name: "idx_on_video_id_pipeline_version_status_27b3ba7c54"
     t.index ["video_id"], name: "index_processing_runs_on_video_id"
     t.check_constraint "attempt_count >= 0", name: "processing_runs_attempt_count_non_negative"
-    t.check_constraint "candidate_processing_mode IS NULL OR (candidate_processing_mode::text = ANY (ARRAY['audit'::character varying, 'repurpose'::character varying]::text[]))", name: "processing_runs_candidate_mode_valid"
+    t.check_constraint "candidate_processing_mode IS NULL OR (candidate_processing_mode::text = ANY (ARRAY['audit'::character varying::text, 'repurpose'::character varying::text]))", name: "processing_runs_candidate_mode_valid"
     t.check_constraint "jsonb_typeof(error_details) = 'object'::text", name: "processing_runs_error_details_object"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "processing_runs_status_valid"
+  end
+
+  create_table "publishing_drafts", force: :cascade do |t|
+    t.datetime "approved_at"
+    t.string "approved_payload_digest"
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.text "error_message"
+    t.datetime "generated_at"
+    t.string "generator_version"
+    t.datetime "published_at"
+    t.string "status", default: "draft", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.bigint "video_id", null: false
+    t.index ["candidate_clip_id", "created_at"], name: "index_publishing_drafts_on_candidate_clip_id_and_created_at", order: { created_at: :desc }
+    t.index ["candidate_clip_id"], name: "index_publishing_drafts_on_candidate_clip_id"
+    t.index ["user_id", "created_at"], name: "index_publishing_drafts_on_user_id_and_created_at", order: { created_at: :desc }
+    t.index ["user_id", "status"], name: "index_publishing_drafts_on_user_id_and_status"
+    t.index ["user_id"], name: "index_publishing_drafts_on_user_id"
+    t.index ["video_id"], name: "index_publishing_drafts_on_video_id"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'ready_for_review'::character varying, 'approved'::character varying, 'publishing'::character varying, 'published'::character varying, 'failed'::character varying]::text[])", name: "publishing_drafts_status_valid"
   end
 
   create_table "ranking_runs", force: :cascade do |t|
@@ -363,10 +467,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "brand_profiles", "users", on_delete: :cascade
   add_foreign_key "candidate_clips", "videos", on_delete: :restrict
   add_foreign_key "candidate_feature_sets", "candidate_clips", on_delete: :restrict
   add_foreign_key "candidate_scores", "candidate_clips", on_delete: :restrict
   add_foreign_key "candidate_scores", "ranking_runs", on_delete: :restrict
+  add_foreign_key "draft_variants", "publishing_drafts", on_delete: :cascade
   add_foreign_key "explanations", "candidate_scores", on_delete: :restrict
   add_foreign_key "exports", "candidate_clips", on_delete: :restrict
   add_foreign_key "exports", "users", on_delete: :restrict
@@ -374,9 +480,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_110003) do
   add_foreign_key "instagram_insight_snapshots", "instagram_accounts", on_delete: :cascade
   add_foreign_key "instagram_insight_snapshots", "instagram_media", column: "instagram_media_id", on_delete: :cascade
   add_foreign_key "instagram_media", "instagram_accounts", on_delete: :cascade
+  add_foreign_key "linkedin_accounts", "users", on_delete: :restrict
+  add_foreign_key "linkedin_insight_snapshots", "linkedin_accounts", on_delete: :cascade
+  add_foreign_key "linkedin_insight_snapshots", "linkedin_posts", on_delete: :cascade
+  add_foreign_key "linkedin_posts", "linkedin_accounts", on_delete: :cascade
   add_foreign_key "preview_artifacts", "candidate_clips", on_delete: :restrict
   add_foreign_key "preview_artifacts", "ranking_runs", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
+  add_foreign_key "publishing_drafts", "candidate_clips", on_delete: :restrict
+  add_foreign_key "publishing_drafts", "users", on_delete: :restrict
+  add_foreign_key "publishing_drafts", "videos", on_delete: :restrict
   add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict
   add_foreign_key "title_idea_sets", "candidate_clips", on_delete: :cascade

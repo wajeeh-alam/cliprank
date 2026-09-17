@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "ms-azuretools.vscode-docker",
+    "shopify.ruby-lsp",
+    "ms-python.python"
+  ]
+}

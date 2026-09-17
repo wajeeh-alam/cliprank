@@ -1,12 +1,13 @@
 # ClipRank
 
-ClipRank analyzes MP4/MOV videos for short-form publishing. It audits an
-existing 3-60 second short as one or a few useful edits, or repurposes a longer
-recording into distinct 15-60 second candidates. Rails owns authentication,
-uploads, durable workflow state, and
-persisted results. A stateless FastAPI service performs transcription,
-candidate generation, media feature extraction, and transparent ranking behind
-a versioned JSON contract.
+ClipRank is a human-approved social publishing agent for short-form video. It
+audits an existing 3-60 second edit or repurposes a longer recording into
+distinct 15-60 second candidates, then prepares editable Instagram and LinkedIn
+copy using the transcript, structured brand memory, and past creator performance.
+Nothing is published automatically. Rails owns authentication, uploads, drafts,
+integrations, durable workflow state, and persisted results. A stateless FastAPI
+service performs transcription, candidate generation, media feature extraction,
+and transparent content-readiness ranking behind a versioned JSON contract.
 
 ## Integrated pipeline
 
@@ -47,10 +48,12 @@ with one distinct edit; long-form runs require up to five valid feature sets,
 capped by the number of genuinely distinct candidates the source supports.
 
 The current branch produces an explainable, playable ranked set with title
-ideas and optional Instagram creator-history evidence. Preview MP4s and
-JPEG thumbnails are immutable, versioned artifacts scoped to one ranking run;
-an older run cannot overwrite or serve media for the current result. Export is
-the next isolated stage and is intentionally not exposed yet.
+ideas and optional Instagram creator-history evidence. A user can maintain a
+structured brand profile, generate editable Instagram and LinkedIn variants
+from a ranked clip, mark them ready for review, and explicitly approve the exact
+payload. Approved drafts remain internal in this MVP. Instagram and LinkedIn
+connections import owned historical content and available analytics; their
+metrics are evidence about past posts, not predictions of future reach.
 
 See [docs/stage-1-architecture.md](docs/stage-1-architecture.md) for the full
 data model, contracts, and Phase 1 plan.
@@ -63,6 +66,20 @@ the current candidate, Instagram, and title-analysis architecture.
 cp .env.example .env
 docker compose up --build
 ```
+
+### Run from VS Code
+
+Open this repository as the VS Code workspace, then use **Terminal → Run Task**:
+
+- `ClipRank: Start` builds and starts the complete application;
+- `ClipRank: Logs` follows Rails, worker, and ML service output;
+- `ClipRank: Rails tests` runs the full Rails test suite;
+- `ClipRank: Full check` runs Rails and ML tests, RuboCop, Brakeman, and dependency audits;
+- `ClipRank: Stop` stops containers while retaining local data.
+
+The tasks read the gitignored `.env` in the workspace root. Create it from
+`.env.example` when opening a fresh clone, and give each concurrently running
+workspace a unique Compose project name and port range.
 
 Replace the development-only placeholder passwords, token, and Rails secret in
 `.env` before starting. Initial startup builds both services. The first real
@@ -91,6 +108,11 @@ the blank `META_INSTAGRAM_*` entries in `.env`. ClipRank requests the documented
 `instagram_business_basic` and `instagram_business_manage_insights` scopes so it
 can import owned captions, engagement counts, views, and reach. Personal
 accounts are not supported. See Meta's [official Instagram API workspace](https://www.postman.com/meta/instagram/overview).
+
+LinkedIn is optional. Configure the blank `LINKEDIN_*` entries in `.env` to
+connect a member account and import post history and creator analytics. Reading
+member posts and analytics requires LinkedIn approval for the configured
+`r_member_social` and `r_member_postAnalytics` scopes.
 
 Endpoints:
 
@@ -157,9 +179,9 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 99 tests, 512 assertions, zero failures;
+- Rails: 133 tests, 748 assertions, zero failures;
 - Python: 32 passed and one optional real-media test skipped when FFmpeg is unavailable;
-- RuboCop: zero offenses across 114 files;
+- RuboCop: zero offenses across 140 files;
 - Brakeman: zero security warnings.
 - Bundler and Importmap audits: no known vulnerable dependencies;
 - redacted Gitleaks scan: no leaks across the branch history.

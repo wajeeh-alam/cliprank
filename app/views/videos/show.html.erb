@@ -111,6 +111,14 @@
 
               <p class="result-transcript"><%= clip.transcript %></p>
 
+              <div class="publishing-action">
+                <div>
+                  <strong>Create publishing draft</strong>
+                  <span>Generate editable Instagram and LinkedIn copy. Nothing is posted automatically.</span>
+                </div>
+                <%= button_to "Create draft", publishing_drafts_path(candidate_clip_id: clip.id), method: :post, class: "button button-small" %>
+              </div>
+
               <div class="title-ideas" aria-label="Title ideas">
                 <div class="title-ideas-heading">
                   <div>

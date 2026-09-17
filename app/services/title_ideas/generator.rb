@@ -2,9 +2,11 @@ require "digest"
 
 module TitleIdeas
   class Generator
-    VERSION = "deterministic-1".freeze
+    VERSION = "deterministic-2".freeze
     HISTORY_SAMPLE_MINIMUM = 5
     STOP_WORDS = %w[a about an and are as at be by for from how in is it of on or the this to was what when with your].freeze
+    GENERIC_LABELS = %w[other unknown none general misc miscellaneous].freeze
+    TRANSCRIPT_FILLERS = %w[actually basically just like literally okay really so um uh well].freeze
 
     class Error < StandardError; end
 
@@ -79,18 +81,16 @@ module TitleIdeas
 
     def title_payloads(candidate, feature_set, history)
       semantic = feature_set.semantic_features
-      topic = clean_phrase(semantic["topic"], fallback: "this idea")
-      excerpt = transcript_excerpt(candidate.transcript, fallback: topic)
+      transcript = clean_phrase(candidate.transcript, fallback: "")
+      subject = transcript_subject(transcript)
+      test_target = transcript_test_target(transcript)
+      topic = meaningful_topic(semantic["topic"]) || subject || transcript_topic(transcript) || "this idea"
+      excerpt = transcript_excerpt(transcript, fallback: topic)
       history_term = history[:terms].first
-      candidates = if history[:source_type] == "instagram_history" && history_term.present?
-        [
-          [ "A practical #{history_term} take on #{topic}", "creator-history pattern" ],
-          [ "The #{topic} angle in practice", "topic-led framing" ],
-          [ "Your #{history_term} idea, reframed", "creator-history pattern" ]
-        ]
-      else
-        transcript_titles(topic, excerpt, semantic["hook_type"])
-      end
+      candidates = transcript_titles(
+        topic, excerpt, semantic["hook_type"], transcript: transcript,
+        subject: subject, test_target: test_target, history_term: history_term
+      )
 
       titles = dedupe_titles(candidates.map do |title, angle|
         { title: normalize_length(title), angle: angle, evidence: title_evidence(feature_set, excerpt, history) }
@@ -100,38 +100,46 @@ module TitleIdeas
 
         titles << candidate_title unless similar_to_existing?(candidate_title.fetch(:title), titles)
       end
-      raise Error, "Could not produce three distinct title ideas" unless titles.length == 3
+      raise Error, "Could not produce three distinct title ideas" unless titles.length >= 3
 
       titles.first(3)
     end
 
-    def transcript_titles(topic, excerpt, hook_type)
-      hook_title = case hook_type.to_s
-      when "question", "curiosity_gap"
-        "A question about #{topic}"
-      when "contrarian", "surprising_claim"
-        "A different take on #{topic}"
-      when "personal_story"
-        "What I learned about #{topic}"
-      when "result_first"
-        "The idea behind #{topic}"
+    def transcript_titles(topic, excerpt, hook_type, transcript:, subject:, test_target:, history_term:)
+      direct_title = if test_target.present? && subject.present?
+        "Testing #{display_phrase(test_target)} With #{display_phrase(subject)}"
+      elsif subject.present?
+        "A video about #{display_phrase(subject)}"
       else
-        "A practical take on #{topic}"
+        display_phrase(excerpt)
       end
 
-      [
-        [ hook_title, "hook-led framing" ],
-        [ "The idea behind #{excerpt}", "transcript hook" ],
-        [ "Making sense of #{topic} in practice", "topic-led framing" ]
-      ]
+      hook_title = case hook_type.to_s
+      when "question", "curiosity_gap"
+        "What should you know about #{topic}?"
+      when "contrarian", "surprising_claim"
+        "A different way to think about #{topic}"
+      when "personal_story"
+        subject.present? ? display_phrase(subject) : "My experience with #{topic}"
+      when "result_first"
+        "The result behind #{topic}"
+      else
+        "The practical takeaway from #{topic}"
+      end
+
+      candidates = [ [ direct_title, "direct transcript" ], [ hook_title, "hook-led framing" ] ]
+      candidates << [ "#{display_phrase(topic)}: #{display_phrase(history_term)} takeaways", "creator-history pattern" ] if history_term.present?
+      candidates << [ hopeful_question(transcript), "transcript question" ] if hopeful_question(transcript).present?
+      candidates << [ "#{display_phrase(topic)}: the practical takeaway", "topic-led framing" ]
+      candidates
     end
 
     def fallback_titles(topic, excerpt, history, feature_set)
       evidence = title_evidence(feature_set, excerpt, history)
       [
-        { title: normalize_length("A clear perspective on #{topic}"), angle: "topic-led framing", evidence: evidence },
-        { title: normalize_length("What this says about #{topic}"), angle: "transcript framing", evidence: evidence },
-        { title: normalize_length("One useful idea from #{excerpt}"), angle: "transcript hook", evidence: evidence }
+        { title: normalize_length(display_phrase(excerpt)), angle: "direct transcript", evidence: evidence },
+        { title: normalize_length("A clear look at #{topic}"), angle: "topic-led framing", evidence: evidence },
+        { title: normalize_length("What matters most about #{topic}"), angle: "transcript framing", evidence: evidence }
       ]
     end
 
@@ -285,13 +293,57 @@ module TitleIdeas
 
     def transcript_excerpt(transcript, fallback:)
       phrase = clean_phrase(transcript, fallback: fallback)
-      phrase.split.first(6).join(" ").presence || fallback
+      words = phrase.split.drop_while { |word| TRANSCRIPT_FILLERS.include?(word.downcase) }
+      words.shift(2) if words.first(2).map(&:downcase) == %w[this is]
+      words.first(10).join(" ").presence || fallback
     end
 
     def normalize_length(title)
-      words = title.to_s.split
-      words = (words + %w[in practice]).first(12) while words.length < 4
+      words = title.to_s.squish.split.first(12)
+      words << "Explained" if words.length == 3
+      words.unshift("Understanding") if words.length == 2
+      words.concat(%w[Made Clear Today]) if words.length == 1
       words.first(12).join(" ")
+    end
+
+    def meaningful_topic(value)
+      topic = clean_phrase(value, fallback: "")
+      return if topic.blank? || GENERIC_LABELS.include?(topic.downcase)
+
+      topic
+    end
+
+    def transcript_subject(transcript)
+      match = transcript.match(
+        /\b(?:video|clip|episode|post)\s+(?:is\s+)?(?:going\s+to\s+)?be\s+about\s+(.+?)(?=\s+(?:hopefully|i\s+hope)\b|[.!?]|\z)/i
+      )
+      clean_phrase(match&.captures&.first, fallback: "").split.first(8).join(" ").presence
+    end
+
+    def transcript_test_target(transcript)
+      match = transcript.match(
+        /\b(?:a\s+)?test\s+(?:for|of)\s+(.+?)(?=\s+(?:this|that|the)\s+(?:video|clip|episode|post)\b|[.!?]|\z)/i
+      )
+      clean_phrase(match&.captures&.first, fallback: "").split.first(6).join(" ").presence
+    end
+
+    def transcript_topic(transcript)
+      tokens = caption_tokens(transcript).reject do |token|
+        TRANSCRIPT_FILLERS.include?(token) || %w[video clip episode post test testing good going hope hopefully].include?(token)
+      end
+      tokens.uniq.first(4).join(" ").presence
+    end
+
+    def hopeful_question(transcript)
+      match = transcript.match(/\b(?:hopefully|i\s+hope)\s+this\s+(?:is|will\s+be)\s+(.+?)(?:[.!?]|\z)/i)
+      hope = clean_phrase(match&.captures&.first, fallback: "").split.first(7).join(" ")
+      return if hope.blank?
+
+      "#{display_phrase("Will this be #{hope}")}?"
+    end
+
+    def display_phrase(value)
+      clean_phrase(value, fallback: "").titleize
     end
 
     def dedupe_titles(candidates)
