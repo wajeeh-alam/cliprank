@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Connected services</p>
       <h1>Integrations</h1>
-      <p class="lede">Bring your owned Instagram Business or Creator media and insights into ClipRank.</p>
+      <p class="lede">Bring your owned Instagram and LinkedIn content and insights into ClipRank.</p>
     </div>
   </div>
 
@@ -59,6 +59,64 @@
                     <td><%= number_with_delimiter(item.like_count || 0) %></td>
                     <td><%= number_with_delimiter(item.comments_count || 0) %></td>
                     <td><%= link_to "Open post", item.permalink, target: "_blank", rel: "noopener noreferrer" if item.permalink.present? %></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </section>
+
+  <section class="empty-state integration-panel" aria-labelledby="linkedin-heading">
+    <h2 id="linkedin-heading">LinkedIn</h2>
+    <% if @linkedin_accounts.empty? %>
+      <p>No LinkedIn account is connected.</p>
+      <%= link_to "Connect LinkedIn", linkedin_connect_path, class: "button" %>
+    <% else %>
+      <% @linkedin_accounts.each do |account| %>
+        <% posts = account.linkedin_posts.sort_by { |post| post.published_at || Time.at(0) }.reverse %>
+        <% latest_insights = posts.filter_map { |post| post.linkedin_insight_snapshots.max_by(&:captured_at) } %>
+        <% totals = latest_insights.each_with_object(Hash.new(0)) { |snapshot, result| snapshot.metrics.each { |key, value| result[key] += value.to_i } } %>
+        <p><strong><%= account.display_name %></strong> · <%= account.linkedin_posts.size %> imported posts</p>
+        <% if account.last_synced_at %><p>Last synced <%= l(account.last_synced_at, format: :long) %></p><% end %>
+        <% if account.sync_error %><p role="alert">Sync issue: <%= account.sync_error %></p><% end %>
+        <div class="integration-actions">
+          <%= button_to "Sync now", linkedin_sync_path(account), method: :post, class: "button" %>
+          <%= button_to "Disconnect", linkedin_disconnect_path(account), method: :delete, class: "button button-secondary" %>
+        </div>
+
+        <dl class="social-metric-grid" aria-label="Imported LinkedIn analytics">
+          <div><dt>Imported posts</dt><dd data-testid="linkedin-post-count"><%= number_with_delimiter(posts.size) %></dd></div>
+          <div><dt>Impressions</dt><dd data-testid="linkedin-impression-count"><%= latest_insights.any? ? number_with_delimiter(totals["impression"]) : "Pending permission" %></dd></div>
+          <div><dt>Members reached</dt><dd><%= latest_insights.any? ? number_with_delimiter(totals["members_reached"]) : "Pending permission" %></dd></div>
+          <div><dt>Reactions</dt><dd><%= latest_insights.any? ? number_with_delimiter(totals["reaction"]) : "Pending permission" %></dd></div>
+          <div><dt>Comments</dt><dd><%= latest_insights.any? ? number_with_delimiter(totals["comment"]) : "Pending permission" %></dd></div>
+          <div><dt>Reshares</dt><dd><%= latest_insights.any? ? number_with_delimiter(totals["reshare"]) : "Pending permission" %></dd></div>
+        </dl>
+
+        <% if posts.any? && latest_insights.empty? %>
+          <p class="fallback-notice">Post history is synced. Creator analytics will appear when the LinkedIn app has the required analytics permission.</p>
+        <% end %>
+
+        <% if posts.any? %>
+          <div class="social-content-heading">
+            <h3>Recent imported content</h3>
+            <p>Used privately as creator-history evidence for future recommendations.</p>
+          </div>
+          <div class="table-scroll">
+            <table class="social-content-table">
+              <thead><tr><th>Published</th><th>Type</th><th>Post</th><th>Impressions</th><th>Reactions</th></tr></thead>
+              <tbody>
+                <% posts.first(20).each do |post| %>
+                  <% insight = post.linkedin_insight_snapshots.max_by(&:captured_at) %>
+                  <tr>
+                    <td><%= post.published_at ? l(post.published_at.to_date, format: :long) : "Unknown" %></td>
+                    <td><%= post.content_type.presence&.titleize || "Text" %></td>
+                    <td><%= truncate(post.commentary.presence || "No commentary", length: 120) %></td>
+                    <td><%= insight ? number_with_delimiter(insight.metrics["impression"].to_i) : "—" %></td>
+                    <td><%= insight ? number_with_delimiter(insight.metrics["reaction"].to_i) : "—" %></td>
                   </tr>
                 <% end %>
               </tbody>

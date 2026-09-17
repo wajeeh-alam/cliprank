@@ -1,0 +1,52 @@
+<% content_for :title, "Review publishing draft · ClipRank" %>
+<% editable = @draft.status.in?(%w[draft ready_for_review]) %>
+
+<main class="page-shell">
+  <%= link_to "← Back to drafts", publishing_drafts_path, class: "back-link" %>
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Human-approved publishing</p>
+      <h1><%= @draft.video.title %></h1>
+      <p class="lede">Edit each platform variant, then mark it ready and approve the exact copy.</p>
+    </div>
+    <span class="status status-<%= @draft.status %>"><%= @draft.status.humanize %></span>
+  </div>
+
+  <section class="detail-card draft-source-card">
+    <h2>Selected clip</h2>
+    <p><strong><%= clip_timestamp(@draft.candidate_clip.start_ms) %>–<%= clip_timestamp(@draft.candidate_clip.end_ms) %></strong></p>
+    <p class="result-transcript"><%= @draft.candidate_clip.transcript %></p>
+    <p class="field-hint">Suggestions use the transcript, measured content features, your brand profile, and past Instagram history when available. They are not reach predictions.</p>
+  </section>
+
+  <%= form_with url: publishing_draft_path(@draft), method: :patch, class: "draft-form" do %>
+    <% @draft.draft_variants.sort_by(&:platform).each do |variant| %>
+      <fieldset class="draft-variant-card" <%= "disabled" unless editable %>>
+        <legend><%= variant.platform.titleize %></legend>
+        <%= hidden_field_tag "draft_variants[#{variant.id}][id]", variant.id %>
+        <%= label_tag "draft_variants_#{variant.id}_title", "Title / hook" %>
+        <%= text_field_tag "draft_variants[#{variant.id}][title]", variant.title, id: "draft_variants_#{variant.id}_title", required: true %>
+        <%= label_tag "draft_variants_#{variant.id}_description", variant.instagram? ? "Caption" : "Post text" %>
+        <%= text_area_tag "draft_variants[#{variant.id}][description]", variant.description, id: "draft_variants_#{variant.id}_description", rows: 8, required: true %>
+        <%= label_tag "draft_variants_#{variant.id}_hashtags", "Hashtags" %>
+        <%= text_field_tag "draft_variants[#{variant.id}][hashtags]", variant.hashtags.join(" "), id: "draft_variants_#{variant.id}_hashtags" %>
+        <%= label_tag "draft_variants_#{variant.id}_cta", "Call to action" %>
+        <%= text_area_tag "draft_variants[#{variant.id}][cta]", variant.cta, id: "draft_variants_#{variant.id}_cta", rows: 2 %>
+        <p class="field-hint">Evidence: <%= Array(variant.evidence["sources"]).map(&:humanize).join(", ") %></p>
+      </fieldset>
+    <% end %>
+
+    <% if editable %><%= submit_tag "Save changes", class: "button" %><% end %>
+  <% end %>
+
+  <div class="draft-review-actions">
+    <% if @draft.draft? %>
+      <%= button_to "Mark ready for review", ready_publishing_draft_path(@draft), method: :patch, class: "button" %>
+    <% elsif @draft.ready_for_review? %>
+      <%= button_to "Approve exact draft", approve_publishing_draft_path(@draft), method: :patch, class: "button" %>
+      <p class="field-hint">Approval locks this content. It does not publish it.</p>
+    <% elsif @draft.approved? %>
+      <p class="approval-notice"><strong>Approved.</strong> Automatic platform publishing is intentionally disabled in this MVP.</p>
+    <% end %>
+  </div>
+</main>

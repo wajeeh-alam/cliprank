@@ -1,0 +1,32 @@
+<% content_for :title, "Publishing drafts · ClipRank" %>
+
+<main class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Human-approved publishing</p>
+      <h1>Drafts</h1>
+      <p class="lede">Review platform-specific copy before anything can be sent to Instagram or LinkedIn.</p>
+    </div>
+    <%= link_to "Upload video", new_video_path, class: "button button-small" %>
+  </div>
+
+  <% if @publishing_drafts.empty? %>
+    <section class="empty-state">
+      <h2>No publishing drafts yet</h2>
+      <p>Open a completed video and create a draft from one of its ranked clips.</p>
+      <%= link_to "View videos", videos_path, class: "button" %>
+    </section>
+  <% else %>
+    <section class="video-list" aria-label="Publishing drafts">
+      <% @publishing_drafts.each do |draft| %>
+        <%= link_to publishing_draft_path(draft), class: "video-card" do %>
+          <div>
+            <h2><%= draft.video.title %></h2>
+            <p><%= draft.draft_variants.map { |variant| variant.platform.titleize }.join(" · ") %> · created <%= l(draft.created_at, format: :long) %></p>
+          </div>
+          <span class="status status-<%= draft.status %>"><%= draft.status.humanize %></span>
+        <% end %>
+      <% end %>
+    </section>
+  <% end %>
+</main>

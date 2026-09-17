@@ -75,7 +75,9 @@ It never claims a creator-history pattern is a platform-wide trend.
 
 Title generation is a separate, non-blocking job after ranking. It creates
 three deterministic 4-12 word ideas for each displayed candidate from the
-transcript, semantic topic, and hook type.
+transcript, meaningful semantic topic, and hook type. Generic classifier
+fallbacks such as `other` are suppressed; transcript structure such as a stated
+subject, test target, or explicit question takes precedence.
 
 With at least five imported captioned posts, the analyzer:
 

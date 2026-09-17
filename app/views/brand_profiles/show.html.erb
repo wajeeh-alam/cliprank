@@ -1,0 +1,51 @@
+<% content_for :title, "Brand · ClipRank" %>
+
+<main class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Brand memory</p>
+      <h1>Your brand</h1>
+      <p class="lede">Give ClipRank a consistent voice, audience, and set of topics to use when drafting social posts.</p>
+    </div>
+    <%= link_to @brand_profile.persisted? ? "Edit brand" : "Set up brand", edit_brand_profile_path, class: "button" %>
+  </div>
+
+  <% if @brand_profile.persisted? %>
+    <section class="detail-card brand-profile" aria-label="Brand profile">
+      <div>
+        <p class="eyebrow">Brand</p>
+        <h2><%= @brand_profile.brand_name %></h2>
+        <div class="brand-copy"><%= simple_format(@brand_profile.description) %></div>
+      </div>
+
+      <dl class="brand-details">
+        <div><dt>Audience</dt><dd><%= simple_format(@brand_profile.audience) %></dd></div>
+        <div><dt>Voice and tone</dt><dd><%= simple_format(@brand_profile.voice) %></dd></div>
+        <div><dt>Default call to action</dt><dd><%= @brand_profile.default_cta.presence || "None set" %></dd></div>
+      </dl>
+
+      <div class="brand-list-grid">
+        <% {
+          "Content pillars" => @brand_profile.content_pillars,
+          "Preferred terms" => @brand_profile.preferred_terms,
+          "Terms to avoid" => @brand_profile.avoided_terms,
+          "Example posts" => @brand_profile.example_posts
+        }.each do |label, items| %>
+          <section>
+            <h3><%= label %></h3>
+            <% if items.any? %>
+              <ul><% items.each do |item| %><li><%= item %></li><% end %></ul>
+            <% else %>
+              <p class="field-hint">None set</p>
+            <% end %>
+          </section>
+        <% end %>
+      </div>
+    </section>
+  <% else %>
+    <section class="empty-state">
+      <h2>No brand profile yet</h2>
+      <p>Add the essentials once, then use them as context for every draft.</p>
+    </section>
+  <% end %>
+</main>

@@ -157,4 +157,27 @@ class TitleIdeasGeneratorTest < ActiveSupport::TestCase
 
     assert candidate.reload.title_idea_sets.first.title_ideas.all? { |idea| idea.title.split.length <= 12 }
   end
+
+  test "uses meaningful transcript structure instead of generic classifier labels" do
+    video = create_video
+    ranking_run = create_ranking_run(video: video, status: "succeeded")
+    candidate = create_candidate(
+      video: video,
+      transcript: "So this is a test for clip rank this video is going to be about me and my friends Hopefully this is a good clip"
+    )
+    create_feature_set(
+      candidate: candidate,
+      feature_version: ranking_run.feature_version,
+      semantic_features: semantic_features.merge("topic" => "other", "content_type" => "other", "hook_type" => "personal_story")
+    )
+    create_score(ranking_run: ranking_run, candidate_clip: candidate)
+
+    TitleIdeas::Generator.call(ranking_run)
+
+    titles = candidate.reload.title_idea_sets.first.title_ideas.order(:rank).pluck(:title)
+    assert_equal "Testing Clip Rank With Me And My Friends", titles.first
+    assert_includes titles, "Me And My Friends"
+    assert_includes titles, "Will This Be A Good Clip?"
+    assert titles.none? { |title| title.match?(/\bother\b|the idea behind|making sense of/i) }
+  end
 end

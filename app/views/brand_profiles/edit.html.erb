@@ -1,0 +1,49 @@
+<% content_for :title, "Edit brand · ClipRank" %>
+
+<main class="form-shell">
+  <%= link_to "← Back to brand", brand_profile_path, class: "back-link" %>
+  <p class="eyebrow">Brand memory</p>
+  <h1><%= @brand_profile.persisted? ? "Edit your brand" : "Set up your brand" %></h1>
+  <p class="lede">This information will guide future titles, descriptions, hashtags, and calls to action.</p>
+
+  <% if @brand_profile.errors.any? %>
+    <div class="error-summary" role="alert">
+      <%= pluralize(@brand_profile.errors.count, "error") %> prevented your brand profile from being saved:
+      <ul><% @brand_profile.errors.full_messages.each do |message| %><li><%= message %></li><% end %></ul>
+    </div>
+  <% end %>
+
+  <%= form_with model: @brand_profile, url: brand_profile_path, method: :patch do |form| %>
+    <%= form.label :brand_name %>
+    <%= form.text_field :brand_name, required: true, autofocus: true, maxlength: 255 %>
+
+    <%= form.label :description, "What does your brand do?" %>
+    <%= form.text_area :description, required: true, rows: 4 %>
+
+    <%= form.label :audience, "Target audience" %>
+    <%= form.text_area :audience, required: true, rows: 3 %>
+
+    <%= form.label :voice, "Voice and tone" %>
+    <%= form.text_area :voice, required: true, rows: 3, placeholder: "e.g. Clear, warm, practical, and never salesy" %>
+
+    <%= form.label :content_pillars, "Content pillars" %>
+    <%= form.text_area :content_pillars, value: @brand_profile.content_pillars.join("\n"), rows: 4, placeholder: "One topic per line" %>
+    <p class="field-hint">One topic per line.</p>
+
+    <%= form.label :preferred_terms %>
+    <%= form.text_area :preferred_terms, value: @brand_profile.preferred_terms.join("\n"), rows: 3, placeholder: "One term per line" %>
+    <p class="field-hint">Words or phrases the brand uses often.</p>
+
+    <%= form.label :avoided_terms, "Terms to avoid" %>
+    <%= form.text_area :avoided_terms, value: @brand_profile.avoided_terms.join("\n"), rows: 3, placeholder: "One term per line" %>
+
+    <%= form.label :default_cta, "Default call to action" %>
+    <%= form.text_area :default_cta, rows: 2, placeholder: "e.g. Follow for practical creator tips." %>
+
+    <%= form.label :example_posts, "Example posts" %>
+    <%= form.text_area :example_posts, value: @brand_profile.example_posts.join("\n"), rows: 5, placeholder: "One example per line" %>
+    <p class="field-hint">Add posts that best represent the voice you want ClipRank to remember.</p>
+
+    <%= form.submit "Save brand profile", class: "button" %>
+  <% end %>
+</main>

@@ -22,6 +22,19 @@ Rails.application.routes.draw do
   get "integrations/instagram/callback", to: "integrations#instagram_callback", as: :instagram_callback
   post "integrations/instagram/:id/sync", to: "integrations#instagram_sync", as: :instagram_sync
   delete "integrations/instagram/:id", to: "integrations#instagram_disconnect", as: :instagram_disconnect
+  get "integrations/linkedin/connect", to: "integrations#linkedin_connect", as: :linkedin_connect
+  get "integrations/linkedin/callback", to: "integrations#linkedin_callback", as: :linkedin_callback
+  post "integrations/linkedin/:id/sync", to: "integrations#linkedin_sync", as: :linkedin_sync
+  delete "integrations/linkedin/:id", to: "integrations#linkedin_disconnect", as: :linkedin_disconnect
+
+  resource :brand_profile, only: %i[show edit update]
+
+  resources :publishing_drafts, only: %i[index show create update] do
+    member do
+      patch :ready
+      patch :approve
+    end
+  end
 
   resources :videos, only: %i[index new create show] do
     resources :preview_artifacts, only: :show
