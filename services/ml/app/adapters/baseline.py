@@ -1,26 +1,5 @@
 from app.domain.candidates import CandidatePolicy, TranscriptSegmentValue, generate_candidates
-from app.domain.errors import UnsupportedOperation
 from app.domain.ranking import score_candidate, validate_weights
-
-
-class UnsupportedTranscriber:
-    def transcribe(self, media_url: str, duration_ms: int) -> object:
-        raise UnsupportedOperation("transcription")
-
-
-class UnsupportedSemanticFeatureExtractor:
-    def extract(self, transcript: str) -> object:
-        raise UnsupportedOperation("semantic feature extraction")
-
-
-class UnsupportedAudioFeatureExtractor:
-    def extract(self, media_url: str, start_ms: int, end_ms: int) -> object:
-        raise UnsupportedOperation("audio feature extraction")
-
-
-class UnsupportedVisualFeatureExtractor:
-    def extract(self, media_url: str, start_ms: int, end_ms: int) -> object:
-        raise UnsupportedOperation("visual feature extraction")
 
 
 class DeterministicCandidateGenerator:

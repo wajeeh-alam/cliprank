@@ -17,7 +17,14 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from app.api.feedback_schemas import FeedbackScoreRequest, FeedbackTrainRequest
 from app.domain.errors import ServiceError
-from app.domain.feedback import CATEGORICAL_FEATURES, NUMERIC_FEATURES, Dataset, Example, build_dataset, flatten_features
+from app.domain.feedback import (
+    CATEGORICAL_FEATURES,
+    MODEL_NUMERIC_FEATURES,
+    Dataset,
+    Example,
+    build_dataset,
+    flatten_features,
+)
 
 
 def _partition(dataset: Dataset) -> tuple[list[Example], list[Example], list[Example], list[str], list[str]]:
@@ -49,26 +56,38 @@ def _partition(dataset: Dataset) -> tuple[list[Example], list[Example], list[Exa
 
 
 def _fit(examples: list[Example]):
-    numeric = np.asarray([[float(item.features[name]) for name in NUMERIC_FEATURES] for item in examples], dtype=float)
+    numeric = np.asarray([[float(item.features[name]) for name in MODEL_NUMERIC_FEATURES] for item in examples], dtype=float)
+    imputation_values: list[float] = []
+    for column, name in enumerate(MODEL_NUMERIC_FEATURES):
+        if name.startswith("visual.") and not name.endswith("_available"):
+            indicator = f"{name}_available"
+            indicator_column = MODEL_NUMERIC_FEATURES.index(indicator)
+            available = numeric[:, indicator_column] == 1.0
+            imputation = float(numeric[available, column].mean()) if available.any() else 0.0
+            numeric[~available, column] = imputation
+        else:
+            imputation = 0.0
+        imputation_values.append(imputation)
     categorical = np.asarray([[str(item.features[name]) for name in CATEGORICAL_FEATURES] for item in examples], dtype=object)
     target = np.asarray([item.target for item in examples], dtype=float)
     scaler = StandardScaler().fit(numeric)
     encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False).fit(categorical)
     matrix = np.hstack([scaler.transform(numeric), encoder.transform(categorical)])
     model = Ridge(alpha=1.0).fit(matrix, target)
-    return scaler, encoder, model
+    return scaler, encoder, model, imputation_values
 
 
-def _artifact(schema_version: str, scaler: StandardScaler, encoder: OneHotEncoder, model: Ridge) -> dict[str, Any]:
+def _artifact(schema_version: str, scaler: StandardScaler, encoder: OneHotEncoder, model: Ridge, imputation_values: list[float]) -> dict[str, Any]:
     categories = {name: [str(value) for value in values] for name, values in zip(CATEGORICAL_FEATURES, encoder.categories_, strict=True)}
-    encoded_names = list(NUMERIC_FEATURES)
+    encoded_names = list(MODEL_NUMERIC_FEATURES)
     for name in CATEGORICAL_FEATURES:
         encoded_names.extend(f"{name}={value}" for value in categories[name])
     return {
-        "artifact_version": "feedback-linear-artifact-1",
-        "algorithm": "standard-scaler-one-hot-ridge",
+        "artifact_version": "feedback-linear-artifact-2",
+        "algorithm": "mean-imputer-availability-standard-scaler-one-hot-ridge",
         "feature_schema_version": schema_version,
-        "numeric_features": list(NUMERIC_FEATURES),
+        "numeric_features": list(MODEL_NUMERIC_FEATURES),
+        "numeric_imputation_values": imputation_values,
         "categorical_features": list(CATEGORICAL_FEATURES),
         "numeric_mean": scaler.mean_.tolist(),
         "numeric_scale": scaler.scale_.tolist(),
@@ -89,7 +108,14 @@ def _encoded_row(features: dict[str, Any], artifact: dict[str, Any]) -> tuple[np
     numeric_names = artifact["numeric_features"]
     means = artifact["numeric_mean"]
     scales = artifact["numeric_scale"]
-    values = [(float(flattened[name]) - float(mean)) / (float(scale) or 1.0) for name, mean, scale in zip(numeric_names, means, scales, strict=True)]
+    imputation_values = artifact.get("numeric_imputation_values", [0.0] * len(numeric_names))
+    numeric_values = [float(flattened[name]) for name in numeric_names]
+    for index, name in enumerate(numeric_names):
+        if name.startswith("visual.") and not name.endswith("_available"):
+            indicator = f"{name}_available"
+            if indicator in flattened and float(flattened[indicator]) == 0.0:
+                numeric_values[index] = float(imputation_values[index])
+    values = [(value - float(mean)) / (float(scale) or 1.0) for value, mean, scale in zip(numeric_values, means, scales, strict=True)]
     names = list(numeric_names)
     for name in artifact["categorical_features"]:
         actual = str(flattened[name])
@@ -158,8 +184,8 @@ def train(request: FeedbackTrainRequest) -> dict[str, Any]:
             details=details,
             status_code=422,
         )
-    scaler, encoder, model = _fit(train_examples)
-    artifact = _artifact(request.feature_schema_version, scaler, encoder, model)
+    scaler, encoder, model, imputation_values = _fit(train_examples)
+    artifact = _artifact(request.feature_schema_version, scaler, encoder, model, imputation_values)
     digest = artifact_digest(artifact)
     validation = _evaluate(validation_examples, artifact)
     final_test = _evaluate(test_examples, artifact)

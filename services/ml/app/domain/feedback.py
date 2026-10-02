@@ -10,6 +10,8 @@ import math
 from statistics import median
 from typing import Any
 
+from app.domain.visual_availability import VISUAL_FEATURES, unavailable_visual_features
+
 
 NUMERIC_FEATURES = (
     "semantic.hook_strength", "semantic.standalone_clarity", "semantic.information_density",
@@ -26,6 +28,9 @@ NUMERIC_FEATURES = (
 )
 CATEGORICAL_FEATURES = ("semantic.topic", "semantic.content_type", "semantic.hook_type")
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+VISUAL_AVAILABILITY_FEATURES = tuple(f"visual.{name}_available" for name in VISUAL_FEATURES)
+MODEL_NUMERIC_FEATURES = NUMERIC_FEATURES + VISUAL_AVAILABILITY_FEATURES
+MODEL_FEATURES = MODEL_NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 
 @dataclass(frozen=True)
@@ -56,8 +61,13 @@ class Dataset:
 def flatten_features(payload: dict[str, Any]) -> dict[str, float | str]:
     if not isinstance(payload, dict):
         raise ValueError("features must be an object")
+    if all(path in payload for path in MODEL_FEATURES):
+        return {path: payload[path] for path in MODEL_FEATURES}
     if all(path in payload for path in ALL_FEATURES):
-        return {path: payload[path] for path in ALL_FEATURES}
+        flattened = {path: payload[path] for path in ALL_FEATURES}
+        for path in VISUAL_AVAILABILITY_FEATURES:
+            flattened[path] = float(payload.get(path, 1.0))
+        return flattened
     flattened: dict[str, float | str] = {}
     for path in NUMERIC_FEATURES:
         group, name = path.split(".", 1)
@@ -71,6 +81,12 @@ def flatten_features(payload: dict[str, Any]) -> dict[str, float | str]:
         if not isinstance(value, str) or not value:
             raise ValueError(f"missing or invalid categorical feature {path}")
         flattened[path] = value
+    warnings = payload.get("capability_warnings", ())
+    if not isinstance(warnings, (list, tuple)) or any(not isinstance(item, str) for item in warnings):
+        raise ValueError("capability_warnings must be a list of strings")
+    unavailable = unavailable_visual_features(warnings)
+    for name in VISUAL_FEATURES:
+        flattened[f"visual.{name}_available"] = 0.0 if name in unavailable else 1.0
     return flattened
 
 

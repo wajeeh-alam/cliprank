@@ -2,6 +2,8 @@ from decimal import Decimal, ROUND_HALF_UP
 import math
 from typing import Any
 
+from app.domain.visual_availability import unavailable_visual_features
+
 
 DEFAULT_WEIGHTS = {"semantic": 0.35, "hook": 0.20, "structural": 0.20, "delivery": 0.15, "visual": 0.10}
 RANK_KEYS = ("semantic", "hook", "structural", "delivery", "visual")
@@ -90,7 +92,18 @@ def normalized_components(features: dict[str, Any]) -> dict[str, float]:
     ])
     # Measurable delivery proxies are bounded and intentionally transparent.
     delivery = _mean([feature(audio, "average_audio_energy"), 1.0 - feature(audio, "silence_ratio"), 1.0 - feature(audio, "pause_frequency")])
-    visual_score = _mean([feature(visual, "face_presence_ratio"), feature(visual, "visual_motion"), 1.0 - feature(visual, "scene_change_rate"), 1.0 - feature(visual, "screen_recording_ratio")])
+    unavailable_visual = unavailable_visual_features(features.get("capability_warnings", ()))
+    visual_measurements = {
+        "face_presence_ratio": lambda: feature(visual, "face_presence_ratio"),
+        "visual_motion": lambda: feature(visual, "visual_motion"),
+        "scene_change_rate": lambda: 1.0 - feature(visual, "scene_change_rate"),
+        "screen_recording_ratio": lambda: 1.0 - feature(visual, "screen_recording_ratio"),
+    }
+    visual_score = _mean([
+        measurement_value()
+        for name, measurement_value in visual_measurements.items()
+        if name not in unavailable_visual
+    ])
     structural_score = _mean([
         feature(structural, "sentence_completeness"),
         1.0 - min(measurement(structural, "intro_length_ms") / 60_000, 1.0),
