@@ -4,11 +4,13 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
   include ActiveJob::TestHelper
 
   class FakeRankClient
-    attr_reader :calls
+    attr_reader :calls, :feedback_calls
 
-    def initialize(response: nil)
+    def initialize(response: nil, feedback_response: nil)
       @response = response
+      @feedback_response = feedback_response
       @calls = []
+      @feedback_calls = []
     end
 
     def rank(payload, request_id:, idempotency_key:)
@@ -43,6 +45,13 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
           }
         end
       }
+    end
+
+    def score_feedback(payload, request_id:, idempotency_key:)
+      @feedback_calls << [ payload, request_id, idempotency_key ]
+      return @feedback_response.call(payload) if @feedback_response.respond_to?(:call)
+
+      @feedback_response
     end
   end
 
@@ -217,6 +226,73 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
     end
   end
 
+  test "shadow model logs feedback without changing the baseline ranking" do
+    with_env("ML_MIN_VALID_CANDIDATES", "2") do
+      video, run, candidates = build_rankable_pipeline
+      model = create_feedback_model(status: "shadow")
+      fake = FakeRankClient.new(feedback_response: feedback_response(candidates.reverse))
+
+      RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+      ranking_run = video.reload.ranking_runs.first
+      assert_equal candidates.map(&:id), ranking_run.candidate_scores.order(:rank).pluck(:candidate_clip_id)
+      predictions = ranking_run.ranking_predictions.order(:baseline_rank)
+      assert_equal [ 2, 1 ], predictions.pluck(:feedback_rank)
+      assert_equal [ "shadow_mode", "shadow_mode" ], predictions.pluck(:fallback_reason)
+      assert_equal [ model.id, model.id ], predictions.pluck(:model_version_id)
+    end
+  end
+
+  test "active model changes ordering and freezes both model versions" do
+    with_env("ML_MIN_VALID_CANDIDATES", "2") do
+      video, run, candidates = build_rankable_pipeline
+      model = create_feedback_model(status: "active")
+      fake = FakeRankClient.new(feedback_response: feedback_response(candidates.reverse))
+
+      RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+      ranking_run = video.reload.ranking_runs.first
+      assert_equal candidates.reverse.map(&:id), ranking_run.candidate_scores.order(:rank).pluck(:candidate_clip_id)
+      prediction = ranking_run.ranking_predictions.find_by!(candidate_clip: candidates.first)
+      assert_equal "heuristic-1", prediction.baseline_model_version
+      assert_equal model.version, prediction.selected_scorer
+      assert_nil prediction.fallback_reason
+    end
+  end
+
+  test "feedback scoring errors fall back to baseline and record the reason" do
+    with_env("ML_MIN_VALID_CANDIDATES", "2") do
+      video, run, candidates = build_rankable_pipeline
+      create_feedback_model(status: "active")
+      fake = FakeRankClient.new(feedback_response: lambda do |_payload|
+        raise Ml::Client::PermanentError.new("bad artifact", code: "ARTIFACT_CHECKSUM_MISMATCH")
+      end)
+
+      RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+      ranking_run = video.reload.ranking_runs.first
+      assert_equal candidates.map(&:id), ranking_run.candidate_scores.order(:rank).pluck(:candidate_clip_id)
+      assert_equal [ "ARTIFACT_CHECKSUM_MISMATCH" ], ranking_run.ranking_predictions.distinct.pluck(:fallback_reason)
+    end
+  end
+
+  test "global feedback flag forces baseline without calling the feedback service" do
+    with_env("ML_MIN_VALID_CANDIDATES", "2") do
+      with_env("FEEDBACK_RANKING_ENABLED", "false") do
+        video, run, candidates = build_rankable_pipeline
+        create_feedback_model(status: "active")
+        fake = FakeRankClient.new(feedback_response: feedback_response(candidates.reverse))
+
+        RankCandidatesJob.perform_now(video.id, run.id, client: fake)
+
+        ranking_run = video.reload.ranking_runs.first
+        assert_empty fake.feedback_calls
+        assert_equal candidates.map(&:id), ranking_run.candidate_scores.order(:rank).pluck(:candidate_clip_id)
+        assert_equal [ "feature_disabled" ], ranking_run.ranking_predictions.distinct.pluck(:fallback_reason)
+      end
+    end
+  end
+
   private
 
   def build_rankable_pipeline(count: 2)
@@ -244,6 +320,41 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       candidate
     end
     [ video, run, candidates ]
+  end
+
+  def create_feedback_model(status:)
+    ModelVersion.create!(
+      version: "feedback-#{SecureRandom.hex(4)}",
+      platform: "instagram",
+      feature_schema_version: "features-1",
+      label_policy_version: "views-72h-account-median-v1",
+      algorithm: "ridge",
+      artifact: { "artifact_version" => "feedback-linear-artifact-1" },
+      artifact_sha256: "a" * 64,
+      artifact_location: "database:test",
+      training_cutoff: 1.day.ago,
+      sample_count: 30,
+      evaluation_metrics: { "release_gate" => { "eligible" => true } },
+      dataset_manifest: {},
+      status: status,
+      trained_at: Time.current
+    )
+  end
+
+  def feedback_response(candidates)
+    {
+      "model_version" => "fake-is-validated-by-client-boundary",
+      "feature_schema_version" => "features-1",
+      "ranked_candidates" => candidates.each_with_index.map do |candidate, index|
+        {
+          "candidate_id" => candidate.id.to_s,
+          "predicted_outcome" => 1.5 - index,
+          "feedback_score" => 82.0 - index,
+          "contributions" => [ { "feature" => "semantic.hook_strength", "contribution" => 0.4 } ],
+          "rank" => index + 1
+        }
+      end
+    }
   end
 
   def with_env(key, value)

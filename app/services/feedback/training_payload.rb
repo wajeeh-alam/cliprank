@@ -3,7 +3,13 @@ module Feedback
     LABEL_POLICY_VERSION = "views-72h-account-median-v1".freeze
 
     def self.call(platform:, schema_version: nil)
-      publications = Publication.where(platform: platform).includes(:metric_snapshots, ranking_prediction: { candidate_clip: :video })
+      publications = Publication.where(platform: platform)
+      publications = if publications.where(demo_data: false).exists?
+        publications.where(demo_data: false)
+      else
+        publications.where(demo_data: true)
+      end
+      publications = publications.includes(:metric_snapshots, ranking_prediction: { candidate_clip: :video })
         .order(:published_at, :id)
       publications = publications.joins(:ranking_prediction).where(ranking_predictions: { schema_version: schema_version }) if schema_version.present?
 

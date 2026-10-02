@@ -145,7 +145,6 @@ def train(request: FeedbackTrainRequest) -> dict[str, Any]:
     scaler, encoder, model = _fit(train_examples)
     artifact = _artifact(request.feature_schema_version, scaler, encoder, model)
     digest = artifact_digest(artifact)
-    version = f"feedback-linear-{digest[:12]}"
     validation = _evaluate(validation_examples, artifact)
     final_test = _evaluate(test_examples, artifact)
     enough_data = len(train_examples) >= 20 and len(validation_examples) >= 5 and len(test_examples) >= 5
@@ -161,6 +160,16 @@ def train(request: FeedbackTrainRequest) -> dict[str, Any]:
         "final_test_publication_ids": [item.publication_id for item in test_examples],
         "purged_source_video_ids": purged_groups,
     })
+    version_identity = {
+        "artifact_sha256": digest,
+        "dataset_sha256": manifest["dataset_sha256"],
+        "training_publication_ids": manifest["training_publication_ids"],
+        "validation_publication_ids": manifest["validation_publication_ids"],
+        "final_test_publication_ids": manifest["final_test_publication_ids"],
+        "training_cutoff": training_cutoff.isoformat(),
+    }
+    version_digest = hashlib.sha256(json.dumps(version_identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    version = f"feedback-linear-{version_digest[:12]}"
     return {
         "model_version": version,
         "algorithm": artifact["algorithm"],

@@ -16,6 +16,7 @@ class TrainFeedbackModelJob < ApplicationJob
       idempotency_key: "feedback/train/#{platform}/#{request_digest}"
     )
     response.fetch("dataset_manifest")["request_sha256"] = request_digest
+    response.fetch("dataset_manifest")["training_data_kind"] = training_data_kind(payload)
     ModelVersion.find_or_create_by!(version: response.fetch("model_version")) do |model|
       model.assign_attributes(
         platform: platform,
@@ -51,9 +52,11 @@ class TrainFeedbackModelJob < ApplicationJob
   end
 
   def dataset_key(payload)
-    rows = payload.fetch("publications").map do |publication|
-      [ publication.fetch("publication_id"), publication.fetch("snapshots").map { |snapshot| snapshot.fetch("snapshot_id") } ]
-    end
-    Digest::SHA256.hexdigest(JSON.generate(rows))
+    Digest::SHA256.hexdigest(JSON.generate(payload))
+  end
+
+  def training_data_kind(payload)
+    publication_ids = payload.fetch("publications").pluck("publication_id")
+    Publication.where(id: publication_ids).where(demo_data: true).exists? ? "demo" : "real"
   end
 end

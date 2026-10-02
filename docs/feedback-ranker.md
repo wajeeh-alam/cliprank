@@ -41,11 +41,17 @@ vocabularies, coefficients and intercept. Rails stores the artifact and its
 SHA-256 checksum; FastAPI refuses schema or checksum mismatches. No pickle is
 loaded.
 
+Demo publications are isolated from real training data. If any real
+publications exist for a platform, demo rows are excluded; a demo-only model is
+stored and displayed with a demo-data label.
+
 New models start in `shadow`. The initial release gate requires at least 20
 training examples, five validation examples, five final-test examples and a
 positive Spearman delta in both held-out windows. A model that does not meet
 the gate remains shadow-only. Activation is explicit, one model can be active
 per platform/schema, and activating an older eligible model performs rollback.
+`FEEDBACK_RANKING_ENABLED=false` is a global kill switch that forces the
+baseline path without deleting or changing any model version.
 
 At ranking time ClipRank logs baseline and feedback ranks. Shadow models never
 change the selected rank. Active models may select the feedback order; missing,

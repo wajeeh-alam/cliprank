@@ -77,7 +77,8 @@ class VideosController < ApplicationController
       .includes(:explanations, candidate_clip: :candidate_feature_sets)
       .order(:rank, :id)
       .limit(5)
-    @predictions_by_candidate = @ranking_run.ranking_predictions.where(candidate_clip_id: @ranked_scores.map(&:candidate_clip_id)).index_by(&:candidate_clip_id)
+    @predictions_by_candidate = @ranking_run.ranking_predictions.includes(:model_version)
+      .where(candidate_clip_id: @ranked_scores.map(&:candidate_clip_id)).index_by(&:candidate_clip_id)
     @title_idea_sets_by_candidate = TitleIdeaSet
       .where(ranking_run_id: @ranking_run.id, candidate_clip_id: @ranked_scores.map(&:candidate_clip_id), version: TitleIdeas::Generator::VERSION)
       .includes(:title_ideas)

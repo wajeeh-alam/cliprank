@@ -43,6 +43,7 @@ class CreateFeedbackRanking < ActiveRecord::Migration[8.1]
       t.string :feature_model_version, null: false
       t.decimal :baseline_score, precision: 7, scale: 4, null: false
       t.integer :baseline_rank, null: false
+      t.string :baseline_model_version, null: false
       t.decimal :feedback_score, precision: 12, scale: 6
       t.decimal :feedback_display_score, precision: 7, scale: 4
       t.integer :feedback_rank

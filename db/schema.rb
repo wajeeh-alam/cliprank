@@ -316,7 +316,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.check_constraint "retention_rate IS NULL OR retention_rate >= 0::numeric AND retention_rate <= 1::numeric", name: "metric_snapshots_retention_rate_range"
     t.check_constraint "saves IS NULL OR saves >= 0", name: "metric_snapshots_saves_non_negative"
     t.check_constraint "shares IS NULL OR shares >= 0", name: "metric_snapshots_shares_non_negative"
-    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'csv'::character varying::text, 'instagram_api'::character varying::text, 'linkedin_api'::character varying::text, 'fixture'::character varying::text])", name: "metric_snapshots_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'csv'::character varying, 'instagram_api'::character varying, 'linkedin_api'::character varying, 'fixture'::character varying]::text[])", name: "metric_snapshots_source_valid"
     t.check_constraint "views IS NULL OR views >= 0", name: "metric_snapshots_views_non_negative"
   end
 
@@ -346,9 +346,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.check_constraint "jsonb_typeof(artifact) = 'object'::text", name: "model_versions_artifact_object"
     t.check_constraint "jsonb_typeof(dataset_manifest) = 'object'::text", name: "model_versions_manifest_object"
     t.check_constraint "jsonb_typeof(evaluation_metrics) = 'object'::text", name: "model_versions_evaluation_object"
-    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying::text, 'linkedin'::character varying::text])", name: "model_versions_platform_valid"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying, 'linkedin'::character varying]::text[])", name: "model_versions_platform_valid"
     t.check_constraint "sample_count >= 0", name: "model_versions_sample_count_non_negative"
-    t.check_constraint "status::text = ANY (ARRAY['shadow'::character varying::text, 'active'::character varying::text, 'retired'::character varying::text, 'rejected'::character varying::text, 'failed'::character varying::text])", name: "model_versions_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['shadow'::character varying, 'active'::character varying, 'retired'::character varying, 'rejected'::character varying, 'failed'::character varying]::text[])", name: "model_versions_status_valid"
   end
 
   create_table "preview_artifacts", force: :cascade do |t|
@@ -417,8 +417,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.index ["ranking_prediction_id"], name: "index_publications_on_ranking_prediction_id"
     t.index ["user_id", "published_at"], name: "index_publications_on_user_id_and_published_at", order: { published_at: :desc }
     t.index ["user_id"], name: "index_publications_on_user_id"
-    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying::text, 'linkedin'::character varying::text])", name: "publications_platform_valid"
-    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'csv'::character varying::text, 'collector'::character varying::text, 'fixture'::character varying::text])", name: "publications_source_valid"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying, 'linkedin'::character varying]::text[])", name: "publications_platform_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'csv'::character varying, 'collector'::character varying, 'fixture'::character varying]::text[])", name: "publications_source_valid"
   end
 
   create_table "publishing_drafts", force: :cascade do |t|
@@ -444,6 +444,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
   end
 
   create_table "ranking_predictions", force: :cascade do |t|
+    t.string "baseline_model_version", null: false
     t.integer "baseline_rank", null: false
     t.decimal "baseline_score", precision: 7, scale: 4, null: false
     t.bigint "candidate_clip_id", null: false

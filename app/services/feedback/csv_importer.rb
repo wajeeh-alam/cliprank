@@ -30,12 +30,15 @@ module Feedback
         )
         attributes = snapshot_attributes(publication, row)
         snapshot = publication.metric_snapshots.new(attributes)
-        if MetricSnapshot.exists?(import_fingerprint: snapshot.send(:derive_age_and_fingerprint).then { snapshot.import_fingerprint })
+        snapshot.valid?
+        if MetricSnapshot.exists?(import_fingerprint: snapshot.import_fingerprint)
           duplicates += 1
         else
           snapshot.save!
           created += 1
         end
+      rescue ActiveRecord::RecordNotUnique
+        duplicates += 1
       rescue ActiveRecord::RecordNotFound, ActiveRecord::RecordInvalid, ArgumentError => error
         errors << { "row" => index + 2, "message" => error.message }
       end

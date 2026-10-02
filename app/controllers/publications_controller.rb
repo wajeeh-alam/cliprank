@@ -58,7 +58,8 @@ class PublicationsController < ApplicationController
         feature_model_version: score.candidate_clip.candidate_feature_sets.find_by!(feature_version: score.ranking_run.feature_version).model_version,
         baseline_score: score.clip_score,
         baseline_rank: score.rank,
-        selected_scorer: "heuristic-1",
+        baseline_model_version: score.ranking_run.scorer_version,
+        selected_scorer: score.ranking_run.scorer_version,
         fallback_reason: "legacy_prediction_backfill",
         recommended_at: score.ranking_run.completed_at || score.created_at
       )

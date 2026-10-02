@@ -145,6 +145,8 @@ class RankCandidatesJob < ApplicationJob
   private
 
   def feedback_ranking(client, feature_version, candidates, video_id, run_id)
+    return [ nil, nil, "feature_disabled" ] unless ActiveModel::Type::Boolean.new.cast(ENV.fetch("FEEDBACK_RANKING_ENABLED", "true"))
+
     platform = ENV.fetch("FEEDBACK_RANKING_PLATFORM", "instagram")
     model = ModelVersion.deployed_for(platform: platform, schema_version: feature_version) ||
       ModelVersion.where(platform: platform, feature_schema_version: feature_version, status: "shadow").order(created_at: :desc).first

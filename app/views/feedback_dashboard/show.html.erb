@@ -50,7 +50,7 @@
               <td><%= link_to publication.post_id, publication_path(publication) %> · <%= publication.platform %><% if publication.demo_data? %> <span class="source-badge">Demo</span><% end %></td>
               <td><%= l(publication.published_at, format: :short) %></td>
               <td>#<%= prediction.baseline_rank %> · <%= prediction.baseline_score %></td>
-              <td><%= prediction.feedback_rank ? "##{prediction.feedback_rank} · #{prediction.feedback_score.round(3)}" : "Not scored" %></td>
+              <td><%= prediction.feedback_rank ? "##{prediction.feedback_rank} · #{prediction.feedback_display_score.round(1)}/100" : "Not scored" %><% if prediction.feedback_score %><br><small>Predicted normalized outcome: <%= format("%+.3f", prediction.feedback_score) %></small><% end %></td>
               <td><%= outcome ? "#{number_with_delimiter(outcome.views)} views at #{outcome.post_age_hours.round(1)}h" : "Unlabeled" %></td>
             </tr>
           <% end %>

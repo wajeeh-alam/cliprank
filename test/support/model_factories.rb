@@ -113,7 +113,8 @@ module ModelFactories
         feature_model_version: feature_set.model_version,
         baseline_score: 80,
         baseline_rank: 1,
-        selected_scorer: "heuristic-1",
+        baseline_model_version: ranking_run.scorer_version,
+        selected_scorer: ranking_run.scorer_version,
         fallback_reason: "shadow_mode",
         recommended_at: Time.current
       }.merge(attributes)

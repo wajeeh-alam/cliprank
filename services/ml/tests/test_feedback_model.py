@@ -84,6 +84,11 @@ def test_training_and_checksum_verified_artifact_reload(headers):
     assert trained["evaluation_metrics"]["final_test"]["sample_count"] > 0
     assert len(trained["artifact_sha256"]) == 64
 
+    changed = training_body()
+    changed["publications"][-1]["snapshots"][0]["views"] += 1
+    changed_model = client.post("/internal/api/v1/feedback/train", headers=headers, json=changed).json()["data"]
+    assert changed_model["model_version"] != trained["model_version"]
+
     score_body = {
         "contract_version": "1.0",
         "feature_schema_version": "features-1",

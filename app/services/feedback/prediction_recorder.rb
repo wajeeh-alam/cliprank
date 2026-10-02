@@ -19,7 +19,7 @@ module Feedback
           baseline = @baseline_by_id.fetch(candidate.id.to_s)
           feedback = @feedback_by_id[candidate.id.to_s]
           feature_set = candidate.candidate_feature_sets.find_by!(feature_version: @ranking_run.feature_version)
-          selected = @model_version&.active? && feedback.present? ? "feedback-linear-1" : "heuristic-1"
+          feedback_selected = @model_version&.active? && feedback.present?
 
           @ranking_run.ranking_predictions.create!(
             candidate_clip: candidate,
@@ -29,12 +29,13 @@ module Feedback
             feature_model_version: feature_set.model_version,
             baseline_score: baseline.fetch("clip_score"),
             baseline_rank: baseline.fetch("rank"),
+            baseline_model_version: @ranking_run.scorer_version,
             feedback_score: feedback&.fetch("predicted_outcome", nil),
             feedback_display_score: feedback&.fetch("feedback_score", nil),
             feedback_rank: feedback&.fetch("rank", nil),
             model_contributions: feedback&.fetch("contributions", []) || [],
-            selected_scorer: selected,
-            fallback_reason: selected == "heuristic-1" ? @fallback_reason : nil,
+            selected_scorer: feedback_selected ? @model_version.version : @ranking_run.scorer_version,
+            fallback_reason: feedback_selected ? nil : @fallback_reason,
             recommended_at: @ranking_run.completed_at || Time.current
           )
         end

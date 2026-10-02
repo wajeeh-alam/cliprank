@@ -146,7 +146,24 @@ def build_dataset(request: Any) -> Dataset:
         platform_history.append((snapshot.observed_at, log_views))
 
     identity = [{"publication_id": item.publication_id, "snapshot_id": item.snapshot_id} for item in examples]
-    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    reproducible_rows = [
+        {
+            "publication_id": item.publication_id,
+            "snapshot_id": item.snapshot_id,
+            "account_id": item.account_id,
+            "source_video_id": item.source_video_id,
+            "published_at": item.published_at.isoformat(),
+            "observed_at": item.observed_at.isoformat(),
+            "views": item.views,
+            "baseline_score": item.baseline_score,
+            "account_baseline": item.account_baseline,
+            "baseline_source": item.baseline_source,
+            "target": item.target,
+            "features": item.features,
+        }
+        for item in examples
+    ]
+    digest = hashlib.sha256(json.dumps(reproducible_rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     manifest = {
         "dataset_sha256": digest,
         "eligible_count": len(examples),

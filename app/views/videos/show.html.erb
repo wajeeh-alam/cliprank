@@ -74,7 +74,7 @@
                   <p class="result-kicker"><%= score.rank <= 3 ? "Top #{score.rank}" : "Rank #{score.rank}" %></p>
                   <h3><%= clip_timestamp(clip.start_ms) %>–<%= clip_timestamp(clip.end_ms) %></h3>
                 </div>
-                <div class="clip-score"><strong><%= score_percent(score.clip_score) %></strong><span>/ 100</span><small><%= prediction&.selected_scorer == "feedback-linear-1" ? "Feedback score" : "Baseline ClipScore" %></small></div>
+                <div class="clip-score"><strong><%= score_percent(score.clip_score) %></strong><span>/ 100</span><small><%= prediction&.feedback_selected? ? "Feedback score" : "Baseline ClipScore" %></small></div>
               </div>
 
               <div class="preview-panel" aria-label="Clip preview">
@@ -114,8 +114,15 @@
 
               <% if prediction&.feedback_score.present? %>
                 <div class="feedback-ranking-note">
-                  <strong><%= prediction.selected_scorer == "feedback-linear-1" ? "Outcome model active" : "Outcome model shadow prediction" %></strong>
+                  <strong><%= prediction.feedback_selected? ? "Outcome model active" : "Outcome model shadow prediction" %></strong>
                   <span>Baseline rank #<%= prediction.baseline_rank %>; feedback rank #<%= prediction.feedback_rank %>. Contributions describe this model, not causal reasons.</span>
+                  <% if prediction.model_contributions.any? %>
+                    <ul class="model-contributions" aria-label="Top signed model contributions">
+                      <% prediction.model_contributions.first(4).each do |item| %>
+                        <li><span><%= item.fetch("feature").tr(".", " ").humanize %></span><strong><%= format("%+.3f", item.fetch("contribution")) %></strong></li>
+                      <% end %>
+                    </ul>
+                  <% end %>
                 </div>
               <% end %>
 
