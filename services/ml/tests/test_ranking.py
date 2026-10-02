@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.adapters.baseline import HeuristicRanker
 from app.api.schemas import RankRequest
-from app.domain.ranking import score_candidate
+from app.domain.ranking import normalized_components, score_candidate
 from app.main import app
 from app.use_cases.rank_candidates import execute
 from tests.conftest import feature_payload
@@ -79,6 +79,28 @@ def test_malformed_direct_features_are_rejected_or_bounded_without_nan():
     payload["audio"]["average_audio_energy"] = float("nan")
     with pytest.raises(ValueError, match="finite"):
         score_candidate(payload)
+
+
+def test_visual_score_excludes_unavailable_measurements_and_renormalizes():
+    payload = feature_payload()["features"]
+    payload["capability_warnings"] = [
+        "VISUAL_FACE_DETECTION_UNAVAILABLE",
+        "VISUAL_SCREEN_RECORDING_CLASSIFICATION_UNAVAILABLE",
+    ]
+    del payload["visual"]["face_presence_ratio"]
+    del payload["visual"]["screen_recording_ratio"]
+
+    components = normalized_components(payload)
+
+    # Only motion (0.3) and inverse scene-change rate (0.9) are available.
+    assert components["visual"] == pytest.approx(0.6)
+
+
+def test_visual_score_does_not_reward_zero_placeholders_when_frame_analysis_is_unavailable():
+    payload = feature_payload()["features"]
+    payload["capability_warnings"] = ["VISUAL_FRAME_ANALYSIS_UNAVAILABLE"]
+
+    assert normalized_components(payload)["visual"] == 0.0
 
 
 def test_rank_ties_are_ordered_by_candidate_id():

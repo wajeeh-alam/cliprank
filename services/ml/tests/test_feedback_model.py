@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api.feedback_schemas import FeedbackTrainRequest
 from app.domain.feedback import build_dataset
 from app.main import app
-from app.use_cases.feedback_model import _partition
+from app.use_cases.feedback_model import _encoded_row, _partition
 from tests.conftest import feature_payload
 
 
@@ -113,6 +113,26 @@ def test_training_and_checksum_verified_artifact_reload(headers):
     rejected = client.post("/internal/api/v1/feedback/score", headers=headers, json=score_body)
     assert rejected.status_code == 422
     assert rejected.json()["error"]["code"] == "ARTIFACT_CHECKSUM_MISMATCH"
+
+
+def test_feedback_model_records_visual_availability_and_imputes_unavailable_values(headers):
+    trained_response = TestClient(app).post("/internal/api/v1/feedback/train", headers=headers, json=training_body())
+    assert trained_response.status_code == 200, trained_response.text
+    artifact = trained_response.json()["data"]["artifact"]
+    assert "visual.screen_recording_ratio_available" in artifact["numeric_features"]
+
+    unavailable_zero = features(1)
+    unavailable_zero["capability_warnings"] = ["VISUAL_SCREEN_RECORDING_CLASSIFICATION_UNAVAILABLE"]
+    unavailable_one = deepcopy(unavailable_zero)
+    unavailable_zero["visual"]["screen_recording_ratio"] = 0.0
+    unavailable_one["visual"]["screen_recording_ratio"] = 1.0
+
+    zero_row, names = _encoded_row(unavailable_zero, artifact)
+    one_row, _ = _encoded_row(unavailable_one, artifact)
+    screen_index = names.index("visual.screen_recording_ratio")
+    indicator_index = names.index("visual.screen_recording_ratio_available")
+    assert zero_row[screen_index] == one_row[screen_index]
+    assert zero_row[indicator_index] == one_row[indicator_index]
 
 
 def test_training_rejects_immature_and_schema_mismatched_rows(headers):
