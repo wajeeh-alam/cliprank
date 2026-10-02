@@ -15,7 +15,10 @@ were actually published.
   metrics for older posts are not treated as historical 72-hour outcomes.
 - The target is `log1p(views) - trailing baseline`. The baseline is the median
   of the account's latest 20 mature outcomes that were observable at the time
-  of publication, after at least five account outcomes. Cold accounts use the
+  of publication, after at least five account outcomes. For each historical
+  post, snapshot selection is rerun as-of that publication time, so a closer
+  snapshot observed later cannot retroactively replace an outcome that was
+  already available. Cold accounts use the
   platform-wide trailing median available at publication time; the first
   platform observation uses zero log views and is marked as a cold start.
 - Instagram and LinkedIn train separate models. The current LinkedIn collector
@@ -32,7 +35,10 @@ the outcome weights.
 
 Splits are chronological. A source-video group that crosses a split boundary
 is purged so no recording can appear on both sides. Preprocessing is fit on the
-training partition only. Reports contain baseline and feedback Spearman
+training partition only. A training row is also purged unless its selected
+outcome had already been observed when the held-out evaluation window began;
+the code never falls back to training on held-out rows when that embargo leaves
+too little data. Reports contain baseline and feedback Spearman
 correlation, prediction MAE/RMSE, split sample counts, exclusions and the exact
 publication/snapshot manifest.
 

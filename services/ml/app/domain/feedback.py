@@ -42,6 +42,7 @@ class Example:
     features: dict[str, float | str]
     account_baseline: float
     baseline_source: str
+    baseline_snapshot_ids: tuple[str, ...]
     target: float
 
 
@@ -73,24 +74,66 @@ def flatten_features(payload: dict[str, Any]) -> dict[str, float | str]:
     return flattened
 
 
+def _valid_snapshots(publication: Any, request: Any) -> list[tuple[Any, float]]:
+    aged = [
+        (snapshot, (snapshot.observed_at - publication.published_at).total_seconds() / 3600.0)
+        for snapshot in publication.snapshots
+    ]
+    return [
+        (snapshot, actual_age) for snapshot, actual_age in aged
+        if request.maturity_min_hours <= actual_age <= request.maturity_max_hours
+        and abs(actual_age - snapshot.post_age_hours) <= 0.05
+        and snapshot.views is not None
+    ]
+
+
+def _closest_snapshot(snapshots: list[tuple[Any, float]], available_at: datetime | None = None):
+    available = [
+        item for item in snapshots
+        if available_at is None or item[0].observed_at <= available_at
+    ]
+    if not available:
+        return None
+    return min(available, key=lambda item: (abs(item[1] - 72.0), item[0].observed_at))
+
+
+def _history_values(history_rows: list[dict[str, Any]], current: Any, account_id: str | None = None) -> list[tuple[float, str]]:
+    current_key = (current.published_at, current.publication_id)
+    history: list[tuple[datetime, str, float, str]] = []
+    for row in history_rows:
+        publication = row["publication"]
+        if (publication.published_at, publication.publication_id) >= current_key:
+            continue
+        if account_id is not None and publication.account_id != account_id:
+            continue
+        selected = _closest_snapshot(row["valid_snapshots"], available_at=current.published_at)
+        if selected is None:
+            continue
+        snapshot, _actual_age = selected
+        history.append((
+            publication.published_at, publication.publication_id,
+            math.log1p(snapshot.views), snapshot.snapshot_id,
+        ))
+    history.sort(key=lambda item: (item[0], item[1]))
+    return [(item[2], item[3]) for item in history]
+
+
 def build_dataset(request: Any) -> Dataset:
     selected: list[dict[str, Any]] = []
+    history_rows: list[dict[str, Any]] = []
     exclusions: list[dict[str, str]] = []
     for publication in request.publications:
+        valid = _valid_snapshots(publication, request)
+        if valid:
+            history_rows.append({"publication": publication, "valid_snapshots": valid})
         if publication.schema_version != request.feature_schema_version:
             exclusions.append({"publication_id": publication.publication_id, "reason": "schema_mismatch"})
             continue
-        aged_snapshots = [
-            (snapshot, (snapshot.observed_at - publication.published_at).total_seconds() / 3600.0)
-            for snapshot in publication.snapshots
-        ]
-        valid = [
-            (snapshot, actual_age) for snapshot, actual_age in aged_snapshots
-            if request.maturity_min_hours <= actual_age <= request.maturity_max_hours
-            and abs(actual_age - snapshot.post_age_hours) <= 0.05
-            and snapshot.views is not None
-        ]
         if not valid:
+            aged_snapshots = [
+                (snapshot, (snapshot.observed_at - publication.published_at).total_seconds() / 3600.0)
+                for snapshot in publication.snapshots
+            ]
             if any(abs(actual_age - snapshot.post_age_hours) > 0.05 for snapshot, actual_age in aged_snapshots):
                 reason = "snapshot_age_mismatch"
             elif any(snapshot.views is None for snapshot in publication.snapshots):
@@ -99,7 +142,7 @@ def build_dataset(request: Any) -> Dataset:
                 reason = "immature_or_outside_tolerance"
             exclusions.append({"publication_id": publication.publication_id, "reason": reason})
             continue
-        outcome, actual_age = min(valid, key=lambda item: (abs(item[1] - 72.0), item[0].observed_at))
+        outcome, actual_age = _closest_snapshot(valid)
         try:
             features = flatten_features(publication.features)
         except ValueError as error:
@@ -108,23 +151,22 @@ def build_dataset(request: Any) -> Dataset:
         selected.append({"publication": publication, "snapshot": outcome, "actual_age": actual_age, "features": features})
 
     selected.sort(key=lambda row: (row["publication"].published_at, row["publication"].publication_id))
-    account_history: dict[str, list[tuple[datetime, float]]] = {}
-    platform_history: list[tuple[datetime, float]] = []
     examples: list[Example] = []
     for row in selected:
         publication = row["publication"]
         snapshot = row["snapshot"]
-        available_account = [value for observed_at, value in account_history.get(publication.account_id, []) if observed_at <= publication.published_at]
-        available_platform = [value for observed_at, value in platform_history if observed_at <= publication.published_at]
-        if len(available_account) >= request.minimum_account_history:
-            baseline_values = available_account[-request.account_history_window:]
+        account_history = _history_values(history_rows, publication, account_id=publication.account_id)
+        platform_history = _history_values(history_rows, publication)
+        if len(account_history) >= request.minimum_account_history:
+            baseline_history = account_history[-request.account_history_window:]
             baseline_source = "account_trailing_median"
-        elif available_platform:
-            baseline_values = available_platform[-max(request.account_history_window, request.minimum_account_history):]
+        elif platform_history:
+            baseline_history = platform_history[-max(request.account_history_window, request.minimum_account_history):]
             baseline_source = "platform_trailing_median"
         else:
-            baseline_values = [0.0]
+            baseline_history = [(0.0, "zero_history_cold_start")]
             baseline_source = "zero_history_cold_start"
+        baseline_values = [item[0] for item in baseline_history]
         account_baseline = float(median(baseline_values))
         log_views = math.log1p(snapshot.views)
         examples.append(Example(
@@ -140,10 +182,9 @@ def build_dataset(request: Any) -> Dataset:
             features=row["features"],
             account_baseline=account_baseline,
             baseline_source=baseline_source,
+            baseline_snapshot_ids=tuple(item[1] for item in baseline_history if baseline_source != "zero_history_cold_start"),
             target=log_views - account_baseline,
         ))
-        account_history.setdefault(publication.account_id, []).append((snapshot.observed_at, log_views))
-        platform_history.append((snapshot.observed_at, log_views))
 
     identity = [{"publication_id": item.publication_id, "snapshot_id": item.snapshot_id} for item in examples]
     reproducible_rows = [
@@ -158,6 +199,7 @@ def build_dataset(request: Any) -> Dataset:
             "baseline_score": item.baseline_score,
             "account_baseline": item.account_baseline,
             "baseline_source": item.baseline_source,
+            "baseline_snapshot_ids": item.baseline_snapshot_ids,
             "target": item.target,
             "features": item.features,
         }
@@ -169,6 +211,10 @@ def build_dataset(request: Any) -> Dataset:
         "eligible_count": len(examples),
         "excluded_count": len(exclusions),
         "publication_snapshot_ids": identity,
+        "baseline_snapshot_ids_by_publication": [
+            {"publication_id": item.publication_id, "snapshot_ids": list(item.baseline_snapshot_ids)}
+            for item in examples
+        ],
         "exclusions": exclusions,
         "label_policy_version": request.label_policy_version,
         "feature_schema_version": request.feature_schema_version,

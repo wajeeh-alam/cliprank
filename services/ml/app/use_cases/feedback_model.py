@@ -20,10 +20,10 @@ from app.domain.errors import ServiceError
 from app.domain.feedback import CATEGORICAL_FEATURES, NUMERIC_FEATURES, Dataset, Example, build_dataset, flatten_features
 
 
-def _partition(dataset: Dataset) -> tuple[list[Example], list[Example], list[Example], list[str]]:
+def _partition(dataset: Dataset) -> tuple[list[Example], list[Example], list[Example], list[str], list[str]]:
     examples = dataset.examples
     if len(examples) < 10:
-        return examples, [], [], []
+        return examples, [], [], [], []
     train_cutoff = examples[max(0, int(len(examples) * 0.6) - 1)].published_at
     validation_cutoff = examples[max(0, int(len(examples) * 0.8) - 1)].published_at
     group_ranges: dict[str, tuple[Any, Any]] = {}
@@ -40,9 +40,12 @@ def _partition(dataset: Dataset) -> tuple[list[Example], list[Example], list[Exa
     train = [item for item in examples if item.source_video_id not in purged and item.published_at <= train_cutoff]
     validation = [item for item in examples if item.source_video_id not in purged and train_cutoff < item.published_at <= validation_cutoff]
     test = [item for item in examples if item.source_video_id not in purged and item.published_at > validation_cutoff]
-    if len(train) < 2:
-        return examples, [], [], sorted(purged)
-    return train, validation, test, sorted(purged)
+    evaluation = validation + test
+    evaluation_start = min((item.published_at for item in evaluation), default=None)
+    unavailable = [] if evaluation_start is None else [item for item in train if item.observed_at > evaluation_start]
+    unavailable_ids = {item.publication_id for item in unavailable}
+    train = [item for item in train if item.publication_id not in unavailable_ids]
+    return train, validation, test, sorted(purged), sorted(unavailable_ids)
 
 
 def _fit(examples: list[Example]):
@@ -141,7 +144,20 @@ def train(request: FeedbackTrainRequest) -> dict[str, Any]:
     dataset = build_dataset(request)
     if len(dataset.examples) < 2:
         raise ServiceError("INSUFFICIENT_FEEDBACK_DATA", "At least two valid mature outcomes are required to train.", retryable=False, details=dataset.manifest, status_code=422)
-    train_examples, validation_examples, test_examples, purged_groups = _partition(dataset)
+    train_examples, validation_examples, test_examples, purged_groups, unavailable_training = _partition(dataset)
+    if len(train_examples) < 2:
+        details = dict(dataset.manifest)
+        details.update({
+            "purged_source_video_ids": purged_groups,
+            "purged_unavailable_training_publication_ids": unavailable_training,
+        })
+        raise ServiceError(
+            "INSUFFICIENT_CHRONOLOGICAL_TRAINING_DATA",
+            "At least two training outcomes must be observable before the held-out evaluation window begins.",
+            retryable=False,
+            details=details,
+            status_code=422,
+        )
     scaler, encoder, model = _fit(train_examples)
     artifact = _artifact(request.feature_schema_version, scaler, encoder, model)
     digest = artifact_digest(artifact)
@@ -153,12 +169,17 @@ def train(request: FeedbackTrainRequest) -> dict[str, Any]:
         and validation["spearman_delta"] > 0 and final_test["spearman_delta"] > 0
     )
     training_cutoff = max(item.published_at for item in train_examples).astimezone(timezone.utc)
+    held_out_examples = validation_examples + test_examples
+    evaluation_start = min((item.published_at for item in held_out_examples), default=None)
     manifest = dict(dataset.manifest)
     manifest.update({
         "training_publication_ids": [item.publication_id for item in train_examples],
         "validation_publication_ids": [item.publication_id for item in validation_examples],
         "final_test_publication_ids": [item.publication_id for item in test_examples],
         "purged_source_video_ids": purged_groups,
+        "purged_unavailable_training_publication_ids": unavailable_training,
+        "evaluation_window_started_at": evaluation_start.astimezone(timezone.utc).isoformat() if evaluation_start else None,
+        "latest_training_label_observed_at": max(item.observed_at for item in train_examples).astimezone(timezone.utc).isoformat(),
     })
     version_identity = {
         "artifact_sha256": digest,
