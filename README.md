@@ -59,6 +59,24 @@ See [docs/stage-1-architecture.md](docs/stage-1-architecture.md) for the full
 data model, contracts, and Phase 1 plan.
 See [docs/short-form-social-pipeline.md](docs/short-form-social-pipeline.md) for
 the current candidate, Instagram, and title-analysis architecture.
+See [docs/feedback-ranker.md](docs/feedback-ranker.md) for outcome collection,
+leakage controls, model training, shadow serving, release gates, and rollback.
+
+## Outcome-feedback ranking
+
+The Feedback dashboard closes the loop between recommendations and real post
+outcomes. A creator can mark a ranked clip as published, import timestamped
+Insights manually or by CSV, and use an authorized platform collector for new
+posts. Only a view observation captured 60–84 hours after publication is a
+valid 72-hour label; missing values are never converted to zero.
+
+FastAPI trains a `StandardScaler` + one-hot encoder + Ridge regression model on
+the frozen 32 pre-publication features. Targets compare `log1p(views)` with the
+account's trailing median as it existed at publication time. Chronological
+source-video-grouped evaluation compares the learned score with `heuristic-1`.
+Models are checksum-versioned JSON artifacts, begin in shadow mode, and retain
+automatic baseline fallback plus explicit rollback. The dashboard reports
+sample counts and labels fixture data instead of claiming unmeasured lift.
 
 ## Run locally with Docker
 

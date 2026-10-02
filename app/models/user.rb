@@ -6,6 +6,7 @@ class User < ApplicationRecord
   has_many :instagram_accounts, dependent: :destroy
   has_one :brand_profile, dependent: :destroy
   has_many :linkedin_accounts, dependent: :destroy
+  has_many :publications, dependent: :restrict_with_exception
 
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 

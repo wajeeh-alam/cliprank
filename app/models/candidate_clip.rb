@@ -10,6 +10,8 @@ class CandidateClip < ApplicationRecord
   has_many :exports, dependent: :restrict_with_exception
   has_many :preview_artifacts, dependent: :restrict_with_exception
   has_many :title_idea_sets, dependent: :destroy
+  has_many :ranking_predictions, dependent: :restrict_with_exception
+  has_many :publications, dependent: :restrict_with_exception
   has_one_attached :preview
   has_one_attached :thumbnail
 

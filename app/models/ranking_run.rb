@@ -10,6 +10,7 @@ class RankingRun < ApplicationRecord
   has_many :candidate_clips, through: :candidate_scores
   has_many :preview_artifacts, dependent: :restrict_with_exception
   has_many :title_idea_sets, dependent: :destroy
+  has_many :ranking_predictions, dependent: :restrict_with_exception
 
   validates :feature_version, :scorer_version, presence: true
   validates :config, hash_payload: true

@@ -1,0 +1,48 @@
+<% content_for :title, "Published clip outcome · ClipRank" %>
+
+<main class="page-shell">
+  <%= link_to "← Feedback dashboard", feedback_dashboard_path, class: "back-link" %>
+  <div class="page-heading">
+    <div><p class="eyebrow">Published clip</p><h1><%= @publication.platform.titleize %> outcome</h1><p class="lede"><%= @publication.post_id %> · published <%= l(@publication.published_at, format: :long) %></p></div>
+    <% if @publication.demo_data? %><span class="status status-failed">Demo data</span><% end %>
+  </div>
+
+  <section class="detail-card">
+    <h2>Timestamped snapshots</h2>
+    <p>Missing values stay missing. Only views measured from 60 through 84 hours are eligible for the 72-hour label.</p>
+    <div class="table-scroll">
+      <table class="social-content-table">
+        <thead><tr><th>Observed</th><th>Post age</th><th>Views</th><th>Engagement</th><th>Source</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <% @publication.metric_snapshots.order(:observed_at).each do |snapshot| %>
+            <tr>
+              <td><%= l(snapshot.observed_at, format: :short) %></td>
+              <td><%= number_with_precision(snapshot.post_age_hours, precision: 1) %>h</td>
+              <td><%= snapshot.views.nil? ? "Missing" : number_with_delimiter(snapshot.views) %></td>
+              <td><%= [snapshot.likes, snapshot.comments, snapshot.shares, snapshot.saves].compact.sum %></td>
+              <td><%= snapshot.source.humanize %></td>
+              <td><%= snapshot == @publication.selected_outcome_snapshot ? "Selected 72h outcome" : "Not selected" %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="detail-card feedback-form-card">
+    <h2>Add an Insights snapshot</h2>
+    <p>Enter the time the platform measured these values—not the time you typed them into ClipRank.</p>
+    <% if @snapshot.errors.any? %><div class="error-summary"><%= @snapshot.errors.full_messages.to_sentence %></div><% end %>
+    <%= form_with model: [@publication, @snapshot] do |form| %>
+      <%= form.label :observed_at %><%= form.datetime_local_field :observed_at, required: true %>
+      <div class="metric-input-grid">
+        <% %i[views likes comments shares saves].each do |metric| %>
+          <div><%= form.label metric %><%= form.number_field metric, min: 0 %></div>
+        <% end %>
+        <div><%= form.label :average_watch_time_seconds %><%= form.number_field :average_watch_time_seconds, min: 0, step: "any" %></div>
+        <div><%= form.label :retention_rate, "Retention rate (0–1)" %><%= form.number_field :retention_rate, min: 0, max: 1, step: "any" %></div>
+      </div>
+      <%= form.submit "Save snapshot", class: "button" %>
+    <% end %>
+  </section>
+</main>

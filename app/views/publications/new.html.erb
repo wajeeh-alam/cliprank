@@ -1,0 +1,35 @@
+<% content_for :title, "Mark clip published · ClipRank" %>
+
+<main class="form-shell">
+  <%= link_to "← Back to video", video_path(@score.candidate_clip.video), class: "back-link" %>
+  <p class="eyebrow">Outcome feedback</p>
+  <h1>Mark this clip as published</h1>
+  <p class="lede">ClipRank freezes the recommendation now and only treats a real metric captured 60–84 hours after publication as a performance label.</p>
+
+  <% if @publication.errors.any? %>
+    <div class="error-summary"><strong>Publication could not be saved.</strong><ul><% @publication.errors.full_messages.each do |message| %><li><%= message %></li><% end %></ul></div>
+  <% end %>
+
+  <%= form_with model: @publication do |form| %>
+    <%= hidden_field_tag :candidate_score_id, @score.id %>
+    <%= form.label :platform %>
+    <%= form.select :platform, Publication::PLATFORMS.map { |platform| [platform.titleize, platform] } %>
+
+    <%= form.label :platform_account_key, "Platform account ID" %>
+    <%= form.text_field :platform_account_key, list: "connected-accounts", required: true %>
+    <datalist id="connected-accounts">
+      <% @instagram_accounts.each do |account| %><option value="<%= account.instagram_user_id %>">Instagram · @<%= account.username %></option><% end %>
+      <% @linkedin_accounts.each do |account| %><option value="<%= account.linkedin_member_id %>">LinkedIn · <%= account.display_name %></option><% end %>
+    </datalist>
+    <p class="field-hint">Use the connected platform ID when available so the authorized collector can retrieve metrics.</p>
+
+    <%= form.label :post_id, "Post ID or URN" %>
+    <%= form.text_field :post_id, required: true %>
+    <%= form.label :post_url, "Post URL (optional)" %>
+    <%= form.url_field :post_url %>
+    <%= form.label :published_at %>
+    <%= form.datetime_local_field :published_at, required: true %>
+    <label class="checkbox-row"><%= form.check_box :demo_data %> This is fixture/demo data</label>
+    <%= form.submit "Record publication", class: "button" %>
+  <% end %>
+</main>

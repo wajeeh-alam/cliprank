@@ -121,7 +121,74 @@ module Ml
       )
     end
 
+    def train_feedback(payload = nil, request_id: nil, idempotency_key: nil, **attributes)
+      data = payload || attributes
+      response = post("/internal/api/v1/feedback/train", data, request_id: request_id, idempotency_key: idempotency_key)
+      validate_feedback_training!(response)
+    end
+
+    def score_feedback(payload = nil, request_id: nil, idempotency_key: nil, **attributes)
+      data = payload || attributes
+      response = post("/internal/api/v1/feedback/score", data, request_id: request_id, idempotency_key: idempotency_key)
+      validate_feedback_scoring!(response,
+        expected_model_version: data["model_version"] || data[:model_version],
+        expected_schema_version: data["feature_schema_version"] || data[:feature_schema_version],
+        expected_candidate_ids: Array(data["candidates"] || data[:candidates]).filter_map do |candidate|
+          candidate["candidate_id"] || candidate[:candidate_id] if candidate.is_a?(Hash)
+        end)
+    end
+
     private
+
+    def validate_feedback_training!(data)
+      keys = %w[model_version algorithm artifact artifact_sha256 training_cutoff sample_count evaluation_metrics dataset_manifest]
+      require_data_keys!(data, keys)
+      reject_unknown_keys!(data, keys)
+      %w[model_version algorithm artifact_sha256 training_cutoff].each { |key| validate_non_empty_string!(data[key], key) }
+      unless data["artifact_sha256"].match?(/\A[0-9a-f]{64}\z/)
+        raise ContractError.new("feedback artifact checksum is invalid", code: "MALFORMED_RESPONSE")
+      end
+      unless data["sample_count"].is_a?(Integer) && data["sample_count"] >= 0
+        raise ContractError.new("feedback sample_count is invalid", code: "MALFORMED_RESPONSE")
+      end
+      %w[artifact evaluation_metrics dataset_manifest].each do |key|
+        raise ContractError.new("feedback #{key} must be an object", code: "MALFORMED_RESPONSE") unless data[key].is_a?(Hash)
+      end
+      data
+    end
+
+    def validate_feedback_scoring!(data, expected_model_version:, expected_schema_version:, expected_candidate_ids:)
+      keys = %w[model_version feature_schema_version ranked_candidates]
+      require_data_keys!(data, keys)
+      reject_unknown_keys!(data, keys)
+      validate_string_match!(data["model_version"], expected_model_version, "model_version")
+      validate_string_match!(data["feature_schema_version"], expected_schema_version, "feature_schema_version")
+      candidates = data["ranked_candidates"]
+      unless candidates.is_a?(Array) && candidates.length == expected_candidate_ids.length
+        raise ContractError.new("feedback ranked candidates are incomplete", code: "MALFORMED_RESPONSE")
+      end
+      ids = []
+      ranks = []
+      candidates.each do |candidate|
+        candidate_keys = %w[candidate_id predicted_outcome feedback_score contributions rank]
+        require_data_keys!(candidate, candidate_keys)
+        reject_unknown_keys!(candidate, candidate_keys)
+        validate_non_empty_string!(candidate["candidate_id"], "candidate_id")
+        unless candidate["predicted_outcome"].is_a?(Numeric) && candidate["feedback_score"].is_a?(Numeric) && candidate["feedback_score"].between?(0, 100)
+          raise ContractError.new("feedback score is invalid", code: "MALFORMED_RESPONSE")
+        end
+        validate_positive_integer!(candidate["rank"], "feedback rank")
+        unless candidate["contributions"].is_a?(Array) && candidate["contributions"].all? { |item| item.is_a?(Hash) && item.keys.sort == %w[contribution feature] && item["feature"].is_a?(String) && item["contribution"].is_a?(Numeric) }
+          raise ContractError.new("feedback contributions are invalid", code: "MALFORMED_RESPONSE")
+        end
+        ids << candidate["candidate_id"]
+        ranks << candidate["rank"]
+      end
+      unless ids.sort == expected_candidate_ids.map(&:to_s).sort && ids.uniq.length == ids.length && ranks.sort == (1..ranks.length).to_a
+        raise ContractError.new("feedback candidates do not match the request", code: "RESPONSE_MISMATCH")
+      end
+      data
+    end
 
     def post(path, data, request_id:, idempotency_key:)
       request_id = SecureRandom.uuid if request_id.nil?

@@ -83,8 +83,8 @@ module Explanations
 
     def summary_for(score, feature_set)
       topic = feature_value(feature_set, "semantic_features", "topic")
-      "Ranked ##{score.rank} with a ClipScore of #{score.clip_score}. " \
-        "The #{topic} candidate is supported by the persisted component and feature evidence below."
+      "Ranked ##{score.rank} with a recommendation score of #{score.clip_score}. " \
+        "The #{topic} candidate is supported by the persisted model and feature evidence below."
     end
 
     def strengths_for(score, feature_set)

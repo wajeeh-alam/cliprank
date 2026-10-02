@@ -119,6 +119,9 @@ services:
       LINKEDIN_API_VERSION: ${LINKEDIN_API_VERSION:-202608}
       LINKEDIN_API_BASE_URL: ${LINKEDIN_API_BASE_URL:-https://api.linkedin.com}
       LINKEDIN_SCOPES: ${LINKEDIN_SCOPES:-openid profile r_member_social r_member_postAnalytics}
+      FEEDBACK_RANKING_PLATFORM: ${FEEDBACK_RANKING_PLATFORM:-instagram}
+      FEEDBACK_RANKING_ENABLED: ${FEEDBACK_RANKING_ENABLED:-true}
+      FEEDBACK_OPERATOR_EMAIL: ${FEEDBACK_OPERATOR_EMAIL:-}
     depends_on:
       db:
         condition: service_healthy
