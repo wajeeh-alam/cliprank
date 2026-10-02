@@ -73,6 +73,8 @@ class RankCandidatesJobTest < ActiveSupport::TestCase
       assert_equal({ "semantic" => 0.35, "hook" => 0.2, "structural" => 0.2, "delivery" => 0.15, "visual" => 0.1 }, ranking_run.config.fetch("weights"))
       assert_equal "succeeded", ranking_run.status
       assert_equal 2, ranking_run.candidate_scores.count
+      assert_equal 2, ranking_run.ranking_predictions.count
+      assert ranking_run.ranking_predictions.all? { |prediction| prediction.fallback_reason == "no_compatible_model" }
       assert_equal 2, Explanation.joins(:candidate_score).where(candidate_scores: { ranking_run_id: ranking_run.id }).count
       assert_equal [ "ranked", "ranked" ], candidates.map { |candidate| candidate.reload.status }
       assert_equal "ranking_complete", run.reload.current_stage

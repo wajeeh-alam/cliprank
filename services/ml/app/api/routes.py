@@ -16,6 +16,8 @@ from app.adapters.faster_whisper import FasterWhisperTranscriber
 from app.adapters.features import DeterministicFeatureExtractor
 from app.use_cases import generate_candidates, rank_candidates, transcribe
 from app.use_cases import extract_features
+from app.api.feedback_schemas import FeedbackScoreRequest, FeedbackTrainRequest
+from app.use_cases import feedback_model
 
 router = APIRouter(prefix="/internal/api/v1")
 
@@ -119,3 +121,15 @@ def rank(request: RankRequest, context: Context):
             "ranked_candidates": [candidate.model_dump(mode="json") for candidate in ranked],
         },
     )
+
+
+@router.post("/feedback/train", response_model=Envelope)
+def feedback_train(request: FeedbackTrainRequest, context: Context):
+    request_id, idempotency_key = context
+    return envelope(request_id, idempotency_key, feedback_model.train(request))
+
+
+@router.post("/feedback/score", response_model=Envelope)
+def feedback_score(request: FeedbackScoreRequest, context: Context):
+    request_id, idempotency_key = context
+    return envelope(request_id, idempotency_key, feedback_model.score(request))

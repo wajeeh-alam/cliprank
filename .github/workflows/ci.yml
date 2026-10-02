@@ -65,6 +65,17 @@ jobs:
       - name: Lint code for consistent style
         run: bin/rubocop -f github
 
+  test-ml:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Run FastAPI tests
+        working-directory: services/ml
+        run: uv run --python 3.12 --extra dev pytest -q
+
   test:
     runs-on: ubuntu-latest
 

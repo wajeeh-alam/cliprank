@@ -100,4 +100,23 @@ module ModelFactories
       }.merge(attributes)
     )
   end
+
+  def create_prediction(ranking_run:, candidate_clip:, model_version: nil, **attributes)
+    feature_set = candidate_clip.candidate_feature_sets.find_by(feature_version: ranking_run.feature_version) ||
+      create_feature_set(candidate: candidate_clip, feature_version: ranking_run.feature_version)
+    ranking_run.ranking_predictions.create!(
+      {
+        candidate_clip: candidate_clip,
+        model_version: model_version,
+        frozen_features: Feedback::FeatureSnapshot.from(feature_set),
+        schema_version: feature_set.feature_version,
+        feature_model_version: feature_set.model_version,
+        baseline_score: 80,
+        baseline_rank: 1,
+        selected_scorer: "heuristic-1",
+        fallback_reason: "shadow_mode",
+        recommended_at: Time.current
+      }.merge(attributes)
+    )
+  end
 end

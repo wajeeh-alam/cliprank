@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -153,7 +153,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
     t.index ["publishing_draft_id"], name: "index_draft_variants_on_publishing_draft_id"
     t.check_constraint "jsonb_typeof(evidence) = 'object'::text", name: "draft_variants_evidence_object"
     t.check_constraint "jsonb_typeof(hashtags) = 'array'::text", name: "draft_variants_hashtags_array"
-    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying, 'linkedin'::character varying]::text[])", name: "draft_variants_platform_valid"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying::text, 'linkedin'::character varying::text])", name: "draft_variants_platform_valid"
   end
 
   create_table "explanations", force: :cascade do |t|
@@ -286,6 +286,71 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "linkedin_posts_metadata_object"
   end
 
+  create_table "metric_snapshots", force: :cascade do |t|
+    t.decimal "average_watch_time_seconds", precision: 12, scale: 4
+    t.bigint "comments"
+    t.datetime "created_at", null: false
+    t.boolean "demo_data", default: false, null: false
+    t.string "import_fingerprint", null: false
+    t.datetime "imported_at", null: false
+    t.bigint "likes"
+    t.datetime "observed_at", null: false
+    t.decimal "post_age_hours", precision: 10, scale: 4, null: false
+    t.bigint "publication_id", null: false
+    t.jsonb "raw_metrics", default: {}, null: false
+    t.decimal "retention_rate", precision: 7, scale: 6
+    t.bigint "saves"
+    t.bigint "shares"
+    t.string "source", null: false
+    t.string "source_record_id"
+    t.datetime "updated_at", null: false
+    t.bigint "views"
+    t.index ["import_fingerprint"], name: "index_metric_snapshots_on_import_fingerprint", unique: true
+    t.index ["publication_id", "observed_at"], name: "index_metric_snapshots_on_publication_id_and_observed_at"
+    t.index ["publication_id"], name: "index_metric_snapshots_on_publication_id"
+    t.check_constraint "average_watch_time_seconds IS NULL OR average_watch_time_seconds >= 0::numeric", name: "metric_snapshots_watch_time_non_negative"
+    t.check_constraint "comments IS NULL OR comments >= 0", name: "metric_snapshots_comments_non_negative"
+    t.check_constraint "jsonb_typeof(raw_metrics) = 'object'::text", name: "metric_snapshots_raw_metrics_object"
+    t.check_constraint "likes IS NULL OR likes >= 0", name: "metric_snapshots_likes_non_negative"
+    t.check_constraint "post_age_hours >= 0::numeric", name: "metric_snapshots_age_non_negative"
+    t.check_constraint "retention_rate IS NULL OR retention_rate >= 0::numeric AND retention_rate <= 1::numeric", name: "metric_snapshots_retention_rate_range"
+    t.check_constraint "saves IS NULL OR saves >= 0", name: "metric_snapshots_saves_non_negative"
+    t.check_constraint "shares IS NULL OR shares >= 0", name: "metric_snapshots_shares_non_negative"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'csv'::character varying::text, 'instagram_api'::character varying::text, 'linkedin_api'::character varying::text, 'fixture'::character varying::text])", name: "metric_snapshots_source_valid"
+    t.check_constraint "views IS NULL OR views >= 0", name: "metric_snapshots_views_non_negative"
+  end
+
+  create_table "model_versions", force: :cascade do |t|
+    t.datetime "activated_at"
+    t.string "algorithm", null: false
+    t.jsonb "artifact", default: {}, null: false
+    t.string "artifact_location", null: false
+    t.string "artifact_sha256", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "dataset_manifest", default: {}, null: false
+    t.boolean "demo_data", default: false, null: false
+    t.jsonb "evaluation_metrics", default: {}, null: false
+    t.string "feature_schema_version", null: false
+    t.string "label_policy_version", null: false
+    t.string "platform", null: false
+    t.datetime "retired_at"
+    t.integer "sample_count", null: false
+    t.string "status", default: "shadow", null: false
+    t.datetime "trained_at", null: false
+    t.datetime "training_cutoff", null: false
+    t.datetime "updated_at", null: false
+    t.string "version", null: false
+    t.index ["platform", "feature_schema_version", "created_at"], name: "index_model_versions_on_platform_schema_created"
+    t.index ["platform", "feature_schema_version"], name: "index_one_active_feedback_model", unique: true, where: "((status)::text = 'active'::text)"
+    t.index ["version"], name: "index_model_versions_on_version", unique: true
+    t.check_constraint "jsonb_typeof(artifact) = 'object'::text", name: "model_versions_artifact_object"
+    t.check_constraint "jsonb_typeof(dataset_manifest) = 'object'::text", name: "model_versions_manifest_object"
+    t.check_constraint "jsonb_typeof(evaluation_metrics) = 'object'::text", name: "model_versions_evaluation_object"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying::text, 'linkedin'::character varying::text])", name: "model_versions_platform_valid"
+    t.check_constraint "sample_count >= 0", name: "model_versions_sample_count_non_negative"
+    t.check_constraint "status::text = ANY (ARRAY['shadow'::character varying::text, 'active'::character varying::text, 'retired'::character varying::text, 'rejected'::character varying::text, 'failed'::character varying::text])", name: "model_versions_status_valid"
+  end
+
   create_table "preview_artifacts", force: :cascade do |t|
     t.bigint "candidate_clip_id", null: false
     t.datetime "created_at", null: false
@@ -333,6 +398,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "processing_runs_status_valid"
   end
 
+  create_table "publications", force: :cascade do |t|
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.boolean "demo_data", default: false, null: false
+    t.string "platform", null: false
+    t.string "platform_account_key", null: false
+    t.string "post_id", null: false
+    t.string "post_url"
+    t.datetime "published_at", null: false
+    t.bigint "ranking_prediction_id", null: false
+    t.string "source", default: "manual", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["candidate_clip_id"], name: "index_publications_on_candidate_clip_id"
+    t.index ["platform", "platform_account_key", "post_id"], name: "index_publications_on_external_identity", unique: true
+    t.index ["platform", "published_at"], name: "index_publications_on_platform_and_published_at"
+    t.index ["ranking_prediction_id"], name: "index_publications_on_ranking_prediction_id"
+    t.index ["user_id", "published_at"], name: "index_publications_on_user_id_and_published_at", order: { published_at: :desc }
+    t.index ["user_id"], name: "index_publications_on_user_id"
+    t.check_constraint "platform::text = ANY (ARRAY['instagram'::character varying::text, 'linkedin'::character varying::text])", name: "publications_platform_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'csv'::character varying::text, 'collector'::character varying::text, 'fixture'::character varying::text])", name: "publications_source_valid"
+  end
+
   create_table "publishing_drafts", force: :cascade do |t|
     t.datetime "approved_at"
     t.string "approved_payload_digest"
@@ -352,7 +440,38 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
     t.index ["user_id", "status"], name: "index_publishing_drafts_on_user_id_and_status"
     t.index ["user_id"], name: "index_publishing_drafts_on_user_id"
     t.index ["video_id"], name: "index_publishing_drafts_on_video_id"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'ready_for_review'::character varying, 'approved'::character varying, 'publishing'::character varying, 'published'::character varying, 'failed'::character varying]::text[])", name: "publishing_drafts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'ready_for_review'::character varying::text, 'approved'::character varying::text, 'publishing'::character varying::text, 'published'::character varying::text, 'failed'::character varying::text])", name: "publishing_drafts_status_valid"
+  end
+
+  create_table "ranking_predictions", force: :cascade do |t|
+    t.integer "baseline_rank", null: false
+    t.decimal "baseline_score", precision: 7, scale: 4, null: false
+    t.bigint "candidate_clip_id", null: false
+    t.datetime "created_at", null: false
+    t.string "fallback_reason"
+    t.string "feature_model_version", null: false
+    t.decimal "feedback_display_score", precision: 7, scale: 4
+    t.integer "feedback_rank"
+    t.decimal "feedback_score", precision: 12, scale: 6
+    t.jsonb "frozen_features", default: {}, null: false
+    t.jsonb "model_contributions", default: [], null: false
+    t.bigint "model_version_id"
+    t.bigint "ranking_run_id", null: false
+    t.datetime "recommended_at", null: false
+    t.string "schema_version", null: false
+    t.string "selected_scorer", default: "heuristic-1", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_clip_id", "recommended_at"], name: "index_ranking_predictions_on_candidate_recommended"
+    t.index ["candidate_clip_id"], name: "index_ranking_predictions_on_candidate_clip_id"
+    t.index ["model_version_id"], name: "index_ranking_predictions_on_model_version_id"
+    t.index ["ranking_run_id", "candidate_clip_id"], name: "index_ranking_predictions_on_run_and_candidate", unique: true
+    t.index ["ranking_run_id"], name: "index_ranking_predictions_on_ranking_run_id"
+    t.check_constraint "baseline_rank >= 1", name: "ranking_predictions_baseline_rank_positive"
+    t.check_constraint "baseline_score >= 0::numeric AND baseline_score <= 100::numeric", name: "ranking_predictions_baseline_score_range"
+    t.check_constraint "feedback_display_score IS NULL OR feedback_display_score >= 0::numeric AND feedback_display_score <= 100::numeric", name: "ranking_predictions_feedback_display_score_range"
+    t.check_constraint "feedback_rank IS NULL OR feedback_rank >= 1", name: "ranking_predictions_feedback_rank_positive"
+    t.check_constraint "jsonb_typeof(frozen_features) = 'object'::text", name: "ranking_predictions_features_object"
+    t.check_constraint "jsonb_typeof(model_contributions) = 'array'::text", name: "ranking_predictions_contributions_array"
   end
 
   create_table "ranking_runs", force: :cascade do |t|
@@ -484,12 +603,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_121000) do
   add_foreign_key "linkedin_insight_snapshots", "linkedin_accounts", on_delete: :cascade
   add_foreign_key "linkedin_insight_snapshots", "linkedin_posts", on_delete: :cascade
   add_foreign_key "linkedin_posts", "linkedin_accounts", on_delete: :cascade
+  add_foreign_key "metric_snapshots", "publications", on_delete: :restrict
   add_foreign_key "preview_artifacts", "candidate_clips", on_delete: :restrict
   add_foreign_key "preview_artifacts", "ranking_runs", on_delete: :restrict
   add_foreign_key "processing_runs", "videos", on_delete: :restrict
+  add_foreign_key "publications", "candidate_clips", on_delete: :restrict
+  add_foreign_key "publications", "ranking_predictions", on_delete: :restrict
+  add_foreign_key "publications", "users", on_delete: :restrict
   add_foreign_key "publishing_drafts", "candidate_clips", on_delete: :restrict
   add_foreign_key "publishing_drafts", "users", on_delete: :restrict
   add_foreign_key "publishing_drafts", "videos", on_delete: :restrict
+  add_foreign_key "ranking_predictions", "candidate_clips", on_delete: :restrict
+  add_foreign_key "ranking_predictions", "model_versions", on_delete: :nullify
+  add_foreign_key "ranking_predictions", "ranking_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "processing_runs", on_delete: :restrict
   add_foreign_key "ranking_runs", "videos", on_delete: :restrict
   add_foreign_key "title_idea_sets", "candidate_clips", on_delete: :cascade

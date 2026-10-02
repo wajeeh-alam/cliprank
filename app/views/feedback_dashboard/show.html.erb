@@ -1,0 +1,74 @@
+<% content_for :title, "Feedback ranker · ClipRank" %>
+
+<main class="page-shell">
+  <div class="page-heading">
+    <div><p class="eyebrow">ML lifecycle</p><h1>Outcome feedback ranker</h1><p class="lede">Learns associations between pre-publication clip features and account-normalized 72-hour views. It does not claim causal lift.</p></div>
+  </div>
+
+  <dl class="social-metric-grid">
+    <div><dt>Recorded publications</dt><dd><%= @publications.size %></dd></div>
+    <div><dt>Valid 72h labels</dt><dd><%= @labeled_count %></dd></div>
+    <div><dt>Latest model</dt><dd><%= @latest_model&.version || "None" %></dd></div>
+  </dl>
+
+  <section class="detail-card feedback-section">
+    <div class="section-heading"><div><p class="eyebrow">Training</p><h2>Versioned models</h2></div><div class="inline-actions"><%= button_to "Train Instagram", train_feedback_models_path(platform: "instagram"), class: "button button-small" %><%= button_to "Train LinkedIn", train_feedback_models_path(platform: "linkedin"), class: "button button-small button-secondary" %></div></div>
+    <div class="table-scroll">
+      <table class="social-content-table">
+        <thead><tr><th>Version</th><th>Platform</th><th>Status</th><th>Samples</th><th>Baseline comparison</th><th>Gate</th><th>Action</th></tr></thead>
+        <tbody>
+          <% @models.each do |model| %>
+            <% test = model.evaluation_metrics.dig("final_test") || {} %>
+            <% gate = model.evaluation_metrics.dig("release_gate") || {} %>
+            <tr>
+              <td><%= model.version %><% if model.demo_data? %><br><span class="source-badge">Demo data</span><% end %></td>
+              <td><%= model.platform.titleize %></td><td><%= model.status.humanize %></td><td><%= model.sample_count %></td>
+              <td>Baseline ρ: <%= test["baseline_spearman"]&.round(3) || "n/a" %><br>Feedback ρ: <%= test["feedback_spearman"]&.round(3) || "n/a" %><br>n=<%= test["sample_count"] || 0 %></td>
+              <td><%= gate["eligible"] ? "Passed" : "Shadow only" %></td>
+              <td>
+                <% if !model.active? && gate["eligible"] %>
+                  <%= button_to(model.retired? ? "Rollback" : "Activate", model.retired? ? rollback_feedback_model_path(model) : activate_feedback_model_path(model), method: :patch, class: "button button-small") %>
+                <% else %>—<% end %>
+              </td>
+            </tr>
+          <% end %>
+          <% if @models.empty? %><tr><td colspan="7">No feedback model has been trained yet.</td></tr><% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="detail-card feedback-section">
+    <h2>Published outcomes</h2>
+    <div class="table-scroll">
+      <table class="social-content-table">
+        <thead><tr><th>Post</th><th>Published</th><th>Baseline</th><th>Feedback</th><th>72h outcome</th></tr></thead>
+        <tbody>
+          <% @publications.each do |publication| %>
+            <% outcome = publication.selected_outcome_snapshot %><% prediction = publication.ranking_prediction %>
+            <tr>
+              <td><%= link_to publication.post_id, publication_path(publication) %> · <%= publication.platform %><% if publication.demo_data? %> <span class="source-badge">Demo</span><% end %></td>
+              <td><%= l(publication.published_at, format: :short) %></td>
+              <td>#<%= prediction.baseline_rank %> · <%= prediction.baseline_score %></td>
+              <td><%= prediction.feedback_rank ? "##{prediction.feedback_rank} · #{prediction.feedback_score.round(3)}" : "Not scored" %></td>
+              <td><%= outcome ? "#{number_with_delimiter(outcome.views)} views at #{outcome.post_age_hours.round(1)}h" : "Unlabeled" %></td>
+            </tr>
+          <% end %>
+          <% if @publications.empty? %><tr><td colspan="5">Mark a ranked clip as published to begin collecting outcomes.</td></tr><% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="detail-card feedback-section">
+    <h2>CSV snapshot import</h2>
+    <p>Required columns: <code>post_id,observed_at,views</code>. Optional: likes, comments, shares, saves, average_watch_time_seconds, retention_rate.</p>
+    <%= form_with url: import_feedback_dashboard_path, multipart: true do |form| %>
+      <%= form.label :platform %><%= form.select :platform, Publication::PLATFORMS.map { |item| [item.titleize, item] } %>
+      <%= form.label :platform_account_key, "Platform account ID" %><%= form.text_field :platform_account_key, required: true %>
+      <%= form.label :csv_file, "CSV file" %><%= form.file_field :csv_file, accept: ".csv,text/csv" %>
+      <%= form.label :csv_text, "Or paste CSV" %><%= form.text_area :csv_text, rows: 5 %>
+      <%= form.submit "Import snapshots", class: "button" %>
+    <% end %>
+  </section>
+</main>

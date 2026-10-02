@@ -36,6 +36,20 @@ Rails.application.routes.draw do
     end
   end
 
+  resource :feedback_dashboard, only: :show, controller: "feedback_dashboard" do
+    post :import
+  end
+  resources :feedback_models, only: [] do
+    collection { post :train }
+    member do
+      patch :activate
+      patch :rollback
+    end
+  end
+  resources :publications, only: %i[new create show] do
+    resources :metric_snapshots, only: :create
+  end
+
   resources :videos, only: %i[index new create show] do
     resources :preview_artifacts, only: :show
   end

@@ -16,6 +16,8 @@ gem "turbo-rails"
 gem "stimulus-rails"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
+# CSV leaves Ruby's default gem set in Ruby 3.4; keep outcome imports explicit.
+gem "csv"
 # Active Support 8.1 passes JSON parser options that json 3.x no longer accepts.
 gem "json", "< 3"
 

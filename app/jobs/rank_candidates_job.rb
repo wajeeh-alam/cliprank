@@ -88,8 +88,23 @@ class RankCandidatesJob < ApplicationJob
       candidate_ids: candidates.map { |candidate| candidate.fetch("candidate_id") },
       expected_weights: request_config.fetch("weights")
     )
-    result = mark_ranking_complete!(video.id, run.id, ranking_run.id, data.fetch("ranked_candidates"))
+    model_version, feedback_data, fallback_reason = feedback_ranking(
+      client_for(client), feature_version, candidates, video.id, run.id
+    )
+    selected_candidates = selected_ranked_candidates(data.fetch("ranked_candidates"), feedback_data, model_version)
+    result = mark_ranking_complete!(video.id, run.id, ranking_run.id, selected_candidates)
     if result == :succeeded
+      begin
+        Feedback::PredictionRecorder.call(
+          ranking_run: ranking_run.reload,
+          baseline_candidates: data.fetch("ranked_candidates"),
+          feedback_data: feedback_data,
+          model_version: model_version,
+          fallback_reason: fallback_reason
+        )
+      rescue ActiveRecord::ActiveRecordError, KeyError => error
+        Rails.logger.error("Feedback prediction logging failed for ranking run #{ranking_run.id}: #{error.class.name}")
+      end
       enqueue_title_ideas_job!(ranking_run.id)
       enqueue_preview_job!(video.id, run.id, ranking_run.id)
     end
@@ -125,5 +140,42 @@ class RankCandidatesJob < ApplicationJob
 
     record_ranking_terminal_error(video_id, processing_run_id, e)
     nil
+  end
+
+  private
+
+  def feedback_ranking(client, feature_version, candidates, video_id, run_id)
+    platform = ENV.fetch("FEEDBACK_RANKING_PLATFORM", "instagram")
+    model = ModelVersion.deployed_for(platform: platform, schema_version: feature_version) ||
+      ModelVersion.where(platform: platform, feature_schema_version: feature_version, status: "shadow").order(created_at: :desc).first
+    return [ nil, nil, "no_compatible_model" ] unless model
+
+    data = client.score_feedback(
+      {
+        "feature_schema_version" => feature_version,
+        "model_version" => model.version,
+        "artifact_sha256" => model.artifact_sha256,
+        "artifact" => model.artifact,
+        "candidates" => candidates.map do |candidate|
+          features = candidate.fetch("features")
+          { "candidate_id" => candidate.fetch("candidate_id"), "features" => features.slice("semantic", "audio", "visual", "structural") }
+        end
+      },
+      request_id: request_id(video_id, run_id, "feedback-rank"),
+      idempotency_key: "video/#{video_id}/run/#{run_id}/feedback/#{model.version}"
+    )
+    [ model, data, model.active? ? nil : "shadow_mode" ]
+  rescue Ml::Client::Error => error
+    [ model, nil, error.code.presence || "feedback_scoring_error" ]
+  end
+
+  def selected_ranked_candidates(baseline, feedback_data, model)
+    return baseline unless model&.active? && feedback_data
+
+    feedback_by_id = feedback_data.fetch("ranked_candidates").index_by { |item| item.fetch("candidate_id") }
+    baseline.map do |candidate|
+      feedback = feedback_by_id.fetch(candidate.fetch("candidate_id"))
+      candidate.merge("rank" => feedback.fetch("rank"), "clip_score" => feedback.fetch("feedback_score"))
+    end.sort_by { |candidate| candidate.fetch("rank") }
   end
 end
