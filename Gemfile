@@ -19,7 +19,7 @@ gem "jbuilder"
 # CSV leaves Ruby's default gem set in Ruby 3.4; keep outcome imports explicit.
 gem "csv"
 # Active Support 8.1 passes JSON parser options that json 3.x no longer accepts.
-gem "json", "< 3"
+gem "json", "< 4"
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 gem "bcrypt", "~> 3.1.7"
