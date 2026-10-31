@@ -1,5 +1,8 @@
 # ClipRank static showcase
 
+Published at <https://wajeeh-alam.github.io/cliprank/> from the dedicated
+`wajeeh-alam/cliprank-static-demo` branch.
+
 This directory is the zero-cost, recruiter-facing GitHub Pages demo. It is a
 buildless HTML/CSS/JavaScript site and does not call the Rails or FastAPI
 services.
