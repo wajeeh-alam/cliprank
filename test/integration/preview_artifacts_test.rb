@@ -15,13 +15,61 @@ class PreviewArtifactsTest < ActionDispatch::IntegrationTest
     assert_redirected_to login_path
   end
 
-  test "owner can receive a short-lived service URL for a ready artifact" do
+  test "owner receives a ready artifact without exposing object storage" do
     artifact = create_artifact(kind: "preview")
+    artifact.file.attach(io: StringIO.new("video-bytes"), filename: "clip.mp4", content_type: "video/mp4")
+    login_as(@user)
 
     get video_preview_artifact_path(@video, artifact)
 
+    assert_response :success
+    assert_equal "video-bytes", response.body
+    assert_equal "video/mp4", response.media_type
+    assert_equal "bytes", response.headers["Accept-Ranges"]
+    assert_nil response.location
+  end
+
+  test "owner can request a byte range for video playback" do
+    artifact = create_artifact(kind: "preview")
+    artifact.file.attach(io: StringIO.new("0123456789"), filename: "clip.mp4", content_type: "video/mp4")
+    login_as(@user)
+
+    get video_preview_artifact_path(@video, artifact), headers: { "Range" => "bytes=2-5" }
+
+    assert_response :partial_content
+    assert_equal "2345", response.body
+    assert_equal "bytes 2-5/10", response.headers["Content-Range"]
+    assert_equal "bytes", response.headers["Accept-Ranges"]
+  end
+
+  test "production-style direct delivery uses a short-lived storage URL" do
+    artifact = create_artifact(kind: "preview")
+    artifact.file.attach(io: StringIO.new("video"), filename: "clip.mp4", content_type: "video/mp4")
+    login_as(@user)
+
+    with_env("DIRECT_MEDIA_DELIVERY" => "true") do
+      service = ActiveStorage::Blob.service
+      service.define_singleton_method(:url) { |*, **| "https://storage.example/clip.mp4?signature=short-lived" }
+      begin
+        get video_preview_artifact_path(@video, artifact)
+      ensure
+        service.singleton_class.send(:remove_method, :url)
+      end
+    end
+
     assert_response :redirect
-    assert_match(/active_storage|storage|example\.com/, response.location)
+    assert_equal "https://storage.example/clip.mp4?signature=short-lived", response.location
+  end
+
+  test "unsatisfiable artifact ranges return 416" do
+    artifact = create_artifact(kind: "preview")
+    artifact.file.attach(io: StringIO.new("video"), filename: "clip.mp4", content_type: "video/mp4")
+    login_as(@user)
+
+    get video_preview_artifact_path(@video, artifact), headers: { "Range" => "bytes=99-" }
+
+    assert_response :range_not_satisfiable
+    assert_equal "bytes */5", response.headers["Content-Range"]
   end
 
   test "another user cannot access the artifact" do
@@ -137,6 +185,15 @@ class PreviewArtifactsTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def with_env(values)
+    name, value = values.first
+    previous = ENV[name]
+    ENV[name] = value
+    yield
+  ensure
+    previous.nil? ? ENV.delete(name) : ENV[name] = previous
+  end
 
   def login_as(user)
     post login_path, params: { session: { email: user.email, password: "password-123" } }
