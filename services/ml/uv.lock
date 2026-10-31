@@ -82,6 +82,7 @@ name = "cliprank-ml"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "av" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "opencv-python-headless" },
@@ -98,6 +99,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "av", specifier = ">=11,<19" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "faster-whisper", specifier = ">=1.1,<2" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27,<1" },

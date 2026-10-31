@@ -11,5 +11,9 @@
     <%= form.password_field :password, required: true, autocomplete: "current-password" %>
     <%= form.submit "Log in", class: "button" %>
   <% end %>
-  <p class="form-footnote">New to ClipRank? <%= link_to "Create an account", signup_path %>.</p>
+  <% if signups_enabled? %>
+    <p class="form-footnote">New to ClipRank? <%= link_to "Create an account", signup_path %>.</p>
+  <% else %>
+    <p class="form-footnote">This portfolio demo is invitation-only.</p>
+  <% end %>
 </main>

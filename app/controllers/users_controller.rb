@@ -1,4 +1,7 @@
 class UsersController < ApplicationController
+  before_action :require_signups_enabled
+  rate_limit to: 5, within: 1.hour, only: :create
+
   def new
     redirect_to videos_path and return if logged_in?
 
@@ -18,6 +21,12 @@ class UsersController < ApplicationController
   end
 
   private
+
+  def require_signups_enabled
+    return if signups_enabled?
+
+    redirect_to login_path, alert: "Account creation is disabled for this demo."
+  end
 
   def user_params
     params.require(:user).permit(:name, :email, :password, :password_confirmation)

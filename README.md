@@ -9,6 +9,16 @@ integrations, durable workflow state, and persisted results. A stateless FastAPI
 service performs transcription, candidate generation, media feature extraction,
 and transparent content-readiness ranking behind a versioned JSON contract.
 
+The root page is a public, read-only project overview; recordings, ranked
+results, media, uploads, integrations, and feedback controls remain behind
+authentication and ownership checks.
+
+**Deployment status:** production infrastructure is prepared but not yet
+created. There is no verified live URL until the paid-resource plan is approved
+and a real video passes the live smoke test. See
+[docs/deployment.md](docs/deployment.md) for the architecture, current cost
+check, secret checklist, and operational limitations.
+
 ## Integrated pipeline
 
 ```text
@@ -80,6 +90,10 @@ sample counts and labels fixture data instead of claiming unmeasured lift.
 
 ## Run locally with Docker
 
+Prerequisites are Docker Desktop or Docker Engine with Compose v2, at least
+4 GB of free memory, and roughly 8 GB of free disk for images, model weights,
+and generated media. FFmpeg and Python are included in the containers.
+
 ```sh
 cp .env.example .env
 docker compose up --build
@@ -104,17 +118,17 @@ Replace the development-only placeholder passwords, token, and Rails secret in
 transcription also downloads the configured Whisper model into the persistent
 `whisper_models` volume.
 
-Conductor assigns this workspace ports beginning at `55050`. Set these
-non-secret values in `.env` before starting so it can run beside other
-workspaces:
+When using Conductor, use the ports allocated to that workspace. Set five
+unused, non-secret ports in `.env` before starting so multiple workspaces can
+run side by side. For example:
 
 ```dotenv
-COMPOSE_PROJECT_NAME=cliprank_davao
-WEB_PORT=55050
-ML_PORT=55051
-POSTGRES_PORT=55052
-S3_PORT=55053
-MINIO_CONSOLE_PORT=55054
+COMPOSE_PROJECT_NAME=cliprank_workspace
+WEB_PORT=55100
+ML_PORT=55101
+POSTGRES_PORT=55102
+S3_PORT=55103
+MINIO_CONSOLE_PORT=55104
 ```
 
 Keep the passwords, Rails secret, and ML service token in the ignored `.env`
@@ -134,19 +148,21 @@ member posts and analytics requires LinkedIn approval for the configured
 
 Endpoints:
 
-- Rails: <http://localhost:55050>
-- FastAPI health: <http://localhost:55051/health>
-- MinIO API: <http://localhost:55053>
-- MinIO console: <http://localhost:55054>
+- Rails: `http://localhost:${WEB_PORT}` (default <http://localhost:3000>)
+- FastAPI health: `http://localhost:${ML_PORT}/health` (default <http://localhost:8000/health>)
+- MinIO API: `http://localhost:${S3_PORT}` (default <http://localhost:9000>)
+- MinIO console: `http://localhost:${MINIO_CONSOLE_PORT}` (default <http://localhost:9001>)
 
 Useful runtime commands:
 
 ```sh
 docker compose ps
 docker compose logs -f worker ml
-curl --fail http://localhost:55051/health
-curl --fail http://localhost:55050/up
+curl --fail http://localhost:8000/health
+curl --fail http://localhost:3000/up
 ```
+
+If `.env` assigns custom ports, use those values in the two health checks.
 
 Stop containers while retaining database, media, and model data:
 
@@ -197,16 +213,18 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 133 tests, 748 assertions, zero failures;
-- Python: 32 passed and one optional real-media test skipped when FFmpeg is unavailable;
-- RuboCop: zero offenses across 140 files;
+- Rails: 158 tests, 908 assertions, zero failures;
+- Python: 42 passed and one optional real-media test skipped when FFmpeg is unavailable;
+- RuboCop: zero offenses across 161 files;
 - Brakeman: zero security warnings.
 - Bundler and Importmap audits: no known vulnerable dependencies;
-- redacted Gitleaks scan: no leaks across the branch history.
+- Render Blueprint: valid against Render's current published JSON Schema;
+- production Rails and ML container images: successful builds.
+- fresh-checkout Docker startup from `.env.example`: Rails and ML healthy.
 
 ## End-to-end smoke test
 
-1. Open <http://localhost:55050>, create an account, and upload a valid MP4/MOV
+1. Open <http://localhost:3000>, create an account, and upload a valid MP4/MOV
    containing spoken audio. A 3-60 second upload exercises short-form audit
    mode; a longer recording exercises repurposing mode.
 2. Follow processing in another terminal:
@@ -249,6 +267,22 @@ succeeded ranking run, one immutable score and one versioned explanation per
 valid candidate, and two ready artifacts (MP4 preview plus JPEG thumbnail) for
 each of the five highest-ranked results.
 
+### Verified local real-media run
+
+On October 30, 2026, the complete UI flow was exercised with a generated
+31.667-second, 1280×720 H.264/AAC video containing spoken narration. Faster
+Whisper produced 14 timestamped transcript segments; ClipRank generated five
+distinct candidates and feature sets, persisted one ranking run with five
+scores, and rendered five MP4 previews plus five JPEG thumbnails. The run
+finished `succeeded` / `complete`. The top preview was inspected with FFprobe
+as a 16.767-second H.264/AAC file and played through the authenticated browser
+route; the browser duration loaded and elapsed playback advanced.
+
+The resulting scores (`47.76`, `47.52`, `47.48`, `46.25`, and `45.92`) are
+content-readiness heuristic outputs. They are not measured engagement gains or
+promises of reach. No canned transcript, fake processing state, or fixture
+ranking was substituted for this run.
+
 ## Preview architecture and security
 
 `RenderPreviewsJob` starts only after ranking persistence commits. The renderer
@@ -261,10 +295,12 @@ artifacts; late jobs cannot mutate a completed or failed run.
 Each `PreviewArtifact` records its ranking run, candidate, exact boundaries,
 kind, render version, and status. The completion barrier reads only these
 run-scoped artifacts, avoiding cross-run state corruption. Media remains
-private in Active Storage/MinIO. The HTML contains authenticated Rails routes,
-not blob keys or signed storage URLs; after verifying the signed-in owner,
-current ranking, current render version, candidate ownership, and Top-5 rank,
-Rails redirects to a five-minute service URL.
+private in Active Storage/MinIO or the production R2 bucket. The HTML contains
+authenticated Rails routes, not blob keys or signed storage URLs. After
+verifying the signed-in owner, current ranking, current render version,
+candidate ownership, and Top-5 rank, Rails serves byte-range responses locally.
+Production can instead redirect the authorized request to a five-minute signed
+R2 URL, avoiding Rails egress while keeping the bucket private.
 
 ## How ranking analysis works
 

@@ -58,7 +58,7 @@ module Ml
     # re-raise for Active Job's retry handler.
     class HttpError < RetryableError; end
 
-    def initialize(base_url: ENV["ML_BASE_URL"], service_token: ENV["ML_SERVICE_TOKEN"],
+    def initialize(base_url: ENV["ML_BASE_URL"].presence || ENV["ML_HOSTPORT"], service_token: ENV["ML_SERVICE_TOKEN"],
                    open_timeout: ENV.fetch("ML_OPEN_TIMEOUT", DEFAULT_OPEN_TIMEOUT).to_i,
                    read_timeout: ENV.fetch("ML_READ_TIMEOUT", DEFAULT_READ_TIMEOUT).to_i,
                    write_timeout: ENV.fetch("ML_WRITE_TIMEOUT", DEFAULT_WRITE_TIMEOUT).to_i,
@@ -66,7 +66,8 @@ module Ml
       raise ConfigurationError.new("ML_BASE_URL is not configured", code: "ML_NOT_CONFIGURED") if base_url.to_s.strip.empty?
       raise ConfigurationError.new("ML_SERVICE_TOKEN is not configured", code: "ML_NOT_CONFIGURED") if service_token.to_s.strip.empty?
 
-      @base_uri = URI.parse(base_url.to_s)
+      normalized_base_url = base_url.to_s.include?("://") ? base_url.to_s : "http://#{base_url}"
+      @base_uri = URI.parse(normalized_base_url)
       unless %w[http https].include?(@base_uri.scheme) && @base_uri.host
         raise ConfigurationError.new("ML_BASE_URL must be an HTTP(S) URL", code: "ML_NOT_CONFIGURED")
       end

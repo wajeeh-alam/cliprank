@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import wave
 
 import pytest
 
@@ -46,6 +47,22 @@ class FakeExtractor:
     def extract(self, _source, destination, **_kwargs):
         self.audio_paths.append(destination)
         destination.write_bytes(b"pcm-wav")
+
+
+def test_installed_faster_whisper_can_decode_audio(tmp_path):
+    """Catch dependency skew at the real faster-whisper/PyAV boundary."""
+    from faster_whisper.audio import decode_audio
+
+    audio_path = tmp_path / "silence.wav"
+    with wave.open(str(audio_path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16_000)
+        audio.writeframes(b"\x00\x00" * 1_600)
+
+    decoded = decode_audio(str(audio_path))
+
+    assert decoded.shape == (1_600,)
 
 
 def test_faster_whisper_converts_timestamps_and_cleans_temp_files():

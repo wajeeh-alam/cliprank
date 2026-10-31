@@ -1,0 +1,76 @@
+<% content_for :title, "ClipRank · Explainable video ranking" %>
+
+<main class="landing-shell">
+  <section class="landing-hero">
+    <div class="landing-copy">
+      <p class="eyebrow">Real media in. Ranked clips out.</p>
+      <h1>Find the strongest moments in a recording without pretending to predict virality.</h1>
+      <p class="landing-lede">
+        ClipRank transcribes uploaded video, builds distinct candidate clips, measures semantic,
+        audio, visual, and structural signals, then renders a private Top 5 for human review.
+      </p>
+      <div class="landing-actions">
+        <%= link_to "Owner log in", login_path, class: "button" %>
+        <% if signups_enabled? %>
+          <%= link_to "Try it locally", signup_path, class: "button button-secondary" %>
+        <% end %>
+        <%= link_to "View the source", "https://github.com/wajeeh-alam/cliprank", class: "landing-source-link", target: "_blank", rel: "noreferrer" %>
+      </div>
+      <% unless signups_enabled? %>
+        <p class="landing-access-note">The hosted demo is invitation-only to protect transcription capacity and private media.</p>
+      <% end %>
+    </div>
+
+    <aside class="pipeline-card" aria-label="ClipRank processing pipeline">
+      <p class="pipeline-label">Durable processing pipeline</p>
+      <ol>
+        <li><span>01</span><div><strong>Transcribe</strong><small>Timestamped Faster Whisper segments</small></div></li>
+        <li><span>02</span><div><strong>Analyze</strong><small>32 measured pre-publication signals</small></div></li>
+        <li><span>03</span><div><strong>Rank</strong><small>Versioned score with evidence</small></div></li>
+        <li><span>04</span><div><strong>Render</strong><small>Private MP4 and thumbnail artifacts</small></div></li>
+        <li><span>05</span><div><strong>Review</strong><small>Human-approved copy and publishing</small></div></li>
+      </ol>
+    </aside>
+  </section>
+
+  <section class="landing-section" aria-labelledby="proof-heading">
+    <p class="eyebrow">Verified local smoke test</p>
+    <h2 id="proof-heading">One real upload, observed end to end</h2>
+    <p class="section-lede">These are pipeline outputs from a 31.667-second H.264/AAC recording, not fixture or canned results.</p>
+    <dl class="proof-grid">
+      <div><dt>14</dt><dd>transcript segments</dd></div>
+      <div><dt>5</dt><dd>distinct candidates</dd></div>
+      <div><dt>5</dt><dd>persisted scores</dd></div>
+      <div><dt>10</dt><dd>ready media artifacts</dd></div>
+    </dl>
+  </section>
+
+  <section class="landing-section" aria-labelledby="design-heading">
+    <p class="eyebrow">Designed for honest iteration</p>
+    <h2 id="design-heading">A ranking system that keeps its claims bounded</h2>
+    <div class="principle-grid">
+      <article>
+        <h3>Explainable baseline</h3>
+        <p>The production score is a deterministic content-readiness heuristic with frozen weights and stored component evidence.</p>
+      </article>
+      <article>
+        <h3>Shadow means shadow</h3>
+        <p>Feedback models can record comparison scores, but cannot reorder clips until real time-valid outcomes pass explicit gates.</p>
+      </article>
+      <article>
+        <h3>Private media</h3>
+        <p>Authentication and ownership checks protect results; production playback uses short-lived URLs into a private object store.</p>
+      </article>
+      <article>
+        <h3>Retry-safe jobs</h3>
+        <p>PostgreSQL locks, idempotency keys, unique constraints, and completion barriers keep background retries from duplicating state.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="architecture-strip" aria-label="Production architecture">
+    <div><span>Control plane</span><strong>Rails + Solid Queue</strong></div>
+    <div><span>Media intelligence</span><strong>FastAPI + Whisper + FFmpeg</strong></div>
+    <div><span>Durable state</span><strong>PostgreSQL + private object storage</strong></div>
+  </section>
+</main>

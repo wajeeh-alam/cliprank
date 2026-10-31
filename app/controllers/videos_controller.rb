@@ -1,6 +1,8 @@
 class VideosController < ApplicationController
   before_action :require_authentication
+  before_action :require_upload_access, only: %i[new create]
   before_action :set_video, only: :show
+  rate_limit to: 5, within: 1.hour, by: -> { current_user&.id || request.remote_ip }, only: :create
 
   ALLOWED_MEDIA_TYPES = %w[video/mp4 video/quicktime].freeze
   PIPELINE_VERSION = "phase1".freeze
@@ -22,14 +24,24 @@ class VideosController < ApplicationController
     validate_source_media(source_media)
     return render(:new, status: :unprocessable_entity) if @video.errors.any?
 
-    ActiveRecord::Base.transaction do
-      @video.save!
-      @video.source_media.attach(source_media)
-      @processing_run = @video.processing_runs.create!(
-        pipeline_version: @video.pipeline_version,
-        idempotency_key: SecureRandom.uuid,
-        status: "pending"
-      )
+    upload_limit_error = nil
+    current_user.with_lock do
+      upload_limit_error = DemoAccess.upload_limit_error(current_user)
+      next if upload_limit_error
+
+      ActiveRecord::Base.transaction do
+        @video.save!
+        @video.source_media.attach(source_media)
+        @processing_run = @video.processing_runs.create!(
+          pipeline_version: @video.pipeline_version,
+          idempotency_key: SecureRandom.uuid,
+          status: "pending"
+        )
+      end
+    end
+    if upload_limit_error
+      @video.errors.add(:base, upload_limit_error)
+      return render(:new, status: :too_many_requests)
     end
 
     # This call intentionally occurs after the transaction block has committed.
@@ -88,6 +100,12 @@ class VideosController < ApplicationController
 
   private
 
+  def require_upload_access
+    return if upload_allowed?
+
+    redirect_to videos_path, alert: "Uploads are disabled for this account."
+  end
+
   def set_video
     @video = current_user.videos.find(params[:id])
   end
@@ -99,6 +117,11 @@ class VideosController < ApplicationController
   def validate_source_media(source_media)
     if source_media.blank?
       @video.errors.add(:source_media, "must be selected")
+      return
+    end
+
+    if source_media.size.to_i > DemoAccess.max_upload_bytes
+      @video.errors.add(:source_media, "is too large (maximum #{DemoAccess.max_upload_bytes / 1.megabyte} MB)")
       return
     end
 

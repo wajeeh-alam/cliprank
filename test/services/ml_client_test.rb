@@ -71,6 +71,29 @@ class MlClientTest < ActiveSupport::TestCase
     assert_equal "1", data.fetch("video_id")
   end
 
+  test "accepts a private host and port supplied without a URL scheme" do
+    client = Ml::Client.new(base_url: "cliprank-ml:8000", service_token: "secret", http_class: FakeHttp)
+
+    assert_instance_of Ml::Client, client
+  end
+
+  test "falls back to the private host when the public base URL is blank" do
+    original_environment = ENV.to_h.slice("ML_BASE_URL", "ML_HOSTPORT", "ML_SERVICE_TOKEN")
+    ENV["ML_BASE_URL"] = ""
+    ENV["ML_HOSTPORT"] = "cliprank-ml:8000"
+    ENV["ML_SERVICE_TOKEN"] = "secret"
+
+    begin
+      client = Ml::Client.new(http_class: FakeHttp)
+
+      assert_instance_of Ml::Client, client
+    ensure
+      %w[ML_BASE_URL ML_HOSTPORT ML_SERVICE_TOKEN].each do |key|
+        original_environment.key?(key) ? ENV[key] = original_environment[key] : ENV.delete(key)
+      end
+    end
+  end
+
   test "rejects a response with a mismatched request id" do
     FakeHttp.response = Response.new(
       "200",

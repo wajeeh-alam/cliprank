@@ -74,6 +74,6 @@ CSV requires `post_id,observed_at,views` and optionally accepts `likes`,
 `comments`, `shares`, `saves`, `average_watch_time_seconds`, and
 `retention_rate`. Imports are idempotent using a canonical fingerprint.
 
-Set `FEEDBACK_OPERATOR_EMAIL` in shared deployments to restrict train,
-activation and rollback controls. If it is blank, any authenticated user may
-operate models for local/demo use.
+Set `FEEDBACK_OPERATOR_EMAIL` to restrict train, activation and rollback
+controls. The controller fails closed when it is blank; local operators who
+need these controls must configure their own signed-in email explicitly.
