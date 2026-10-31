@@ -64,7 +64,7 @@ short-lived signed URLs.
 
 ## Approval-gated deployment checklist
 
-1. Approve the unpushed source diff and the $45.25/month baseline.
+1. Approve the reviewed source changes and the $45.25/month baseline.
 2. Create a private Cloudflare R2 bucket and an object-scoped API token. Do not
    use an account-wide token. Keep the bucket's public development URL off.
 3. Connect the repository to Render and create the Blueprint from

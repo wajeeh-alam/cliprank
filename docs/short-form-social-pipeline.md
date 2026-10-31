@@ -100,11 +100,11 @@ or preview result.
 cp .env.example .env
 docker compose up --build -d
 docker compose ps
-curl --fail http://localhost:55050/up
-curl --fail http://localhost:55051/health
+curl --fail http://localhost:3000/up
+curl --fail http://localhost:8000/health
 ```
 
-Open <http://localhost:55050>, create an account, and upload a spoken MP4/MOV.
+Open <http://localhost:3000>, create an account, and upload a spoken MP4/MOV.
 Use a new upload when retesting a previously failed run; failed runs are kept as
 audit history rather than silently mutated.
 

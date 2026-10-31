@@ -220,7 +220,7 @@ Current verified results:
 
 ## End-to-end smoke test
 
-1. Open <http://localhost:55050>, create an account, and upload a valid MP4/MOV
+1. Open <http://localhost:3000>, create an account, and upload a valid MP4/MOV
    containing spoken audio. A 3-60 second upload exercises short-form audit
    mode; a longer recording exercises repurposing mode.
 2. Follow processing in another terminal:
