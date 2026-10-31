@@ -36,7 +36,7 @@ class FeedbackModelsController < ApplicationController
 
   def require_operator
     operator_email = ENV["FEEDBACK_OPERATOR_EMAIL"].to_s.downcase
-    return if operator_email.blank? || ActiveSupport::SecurityUtils.secure_compare(current_user.email, operator_email)
+    return if operator_email.present? && ActiveSupport::SecurityUtils.secure_compare(current_user.email, operator_email)
 
     head :forbidden
   end

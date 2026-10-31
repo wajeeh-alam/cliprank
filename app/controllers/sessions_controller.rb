@@ -1,4 +1,6 @@
 class SessionsController < ApplicationController
+  rate_limit to: 10, within: 10.minutes, only: :create
+
   def new
     redirect_to videos_path and return if logged_in?
 

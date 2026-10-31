@@ -86,6 +86,26 @@ class FeedbackOutcomesTest < ActionDispatch::IntegrationTest
     assert_select "input[name=candidate_score_id][value='#{@score.id}']"
   end
 
+  test "feedback model operations fail closed without an operator email" do
+    with_env("FEEDBACK_OPERATOR_EMAIL", nil) do
+      assert_no_enqueued_jobs do
+        post train_feedback_models_path, params: { platform: "instagram" }
+      end
+    end
+
+    assert_response :forbidden
+  end
+
+  test "the configured feedback operator can queue shadow training" do
+    with_env("FEEDBACK_OPERATOR_EMAIL", @video.user.email) do
+      assert_enqueued_with(job: TrainFeedbackModelJob, args: [ "instagram" ]) do
+        post train_feedback_models_path, params: { platform: "instagram" }
+      end
+    end
+
+    assert_redirected_to feedback_dashboard_path
+  end
+
   private
 
   def create_publication
@@ -104,5 +124,13 @@ class FeedbackOutcomesTest < ActionDispatch::IntegrationTest
   def login_as(user)
     post login_path, params: { session: { email: user.email, password: "password-123" } }
     assert_redirected_to videos_path
+  end
+
+  def with_env(name, value)
+    previous = ENV[name]
+    value.nil? ? ENV.delete(name) : ENV[name] = value
+    yield
+  ensure
+    previous.nil? ? ENV.delete(name) : ENV[name] = previous
   end
 end

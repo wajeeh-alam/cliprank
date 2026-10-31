@@ -45,6 +45,19 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
     assert_redirected_to videos_path
   end
 
+  test "can disable public registration for a portfolio deployment" do
+    with_env("SIGNUPS_ENABLED" => "false") do
+      get signup_path
+
+      assert_redirected_to login_path
+      assert_no_difference("User.count") do
+        post signup_path, params: {
+          user: { email: "blocked@example.com", password: "password-123", password_confirmation: "password-123" }
+        }
+      end
+    end
+  end
+
   test "rejects incorrect login credentials" do
     post login_path, params: { session: { email: @user.email, password: "wrong-password" } }
 
@@ -67,6 +80,50 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
     video = Video.last
     assert video.source_media.attached?
     assert_equal "pending", video.processing_runs.last.status
+  end
+
+  test "rejects uploads from accounts outside the configured allowlist" do
+    login_as(@user)
+
+    with_env("UPLOAD_ALLOWED_EMAILS" => @other_user.email) do
+      post videos_path, params: {
+        video: { title: "Blocked", source_media: uploaded_file("video/mp4", "blocked.mp4") }
+      }
+    end
+
+    assert_redirected_to videos_path
+    assert_equal 0, @user.videos.count
+  end
+
+  test "rejects oversized uploads before creating pipeline records" do
+    login_as(@user)
+
+    with_env("MAX_UPLOAD_BYTES" => "4") do
+      assert_no_difference [ "Video.count", "ProcessingRun.count" ] do
+        post videos_path, params: {
+          video: { title: "Too large", source_media: uploaded_file("video/mp4", "large.mp4") }
+        }
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_select '[role="alert"]', /too large/i
+  end
+
+  test "enforces a durable per-account daily upload quota" do
+    @user.videos.create!(title: "Earlier upload", pipeline_version: "phase1", status: "complete")
+    login_as(@user)
+
+    with_env("DAILY_UPLOAD_LIMIT" => "1") do
+      assert_no_difference [ "Video.count", "ProcessingRun.count" ] do
+        post videos_path, params: {
+          video: { title: "Over quota", source_media: uploaded_file("video/mp4", "quota.mp4") }
+        }
+      end
+    end
+
+    assert_response :too_many_requests
+    assert_select '[role="alert"]', /daily upload limit/i
   end
 
   test "requires an MP4 or MOV upload" do
@@ -103,6 +160,14 @@ class AuthenticationAndVideoUploadTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def with_env(values)
+    previous = values.to_h { |key, _value| [ key, ENV[key] ] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    previous.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
 
   def login_as(user)
     post login_path, params: { session: { email: user.email, password: "password-123" } }
