@@ -71,6 +71,12 @@ class MlClientTest < ActiveSupport::TestCase
     assert_equal "1", data.fetch("video_id")
   end
 
+  test "accepts a private host and port supplied without a URL scheme" do
+    client = Ml::Client.new(base_url: "cliprank-ml:8000", service_token: "secret", http_class: FakeHttp)
+
+    assert_instance_of Ml::Client, client
+  end
+
   test "rejects a response with a mismatched request id" do
     FakeHttp.response = Response.new(
       "200",

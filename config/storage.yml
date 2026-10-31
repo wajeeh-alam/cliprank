@@ -13,7 +13,7 @@ s3_compatible:
   secret_access_key: <%= ENV["S3_SECRET_ACCESS_KEY"] %>
   region: <%= ENV.fetch("AWS_REGION", "us-east-1") %>
   bucket: <%= ENV["S3_BUCKET"] %>
-  force_path_style: true
+  force_path_style: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("S3_FORCE_PATH_STYLE", "true")) %>
 
 # Use bin/rails credentials:edit to set the AWS secrets (as aws:access_key_id|secret_access_key)
 # amazon:
