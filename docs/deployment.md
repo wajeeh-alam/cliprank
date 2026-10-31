@@ -90,8 +90,10 @@ short-lived signed URLs.
 
    Remove both temporary variables immediately afterward. Never put the
    password in a command, repository file, deploy log, or screenshot.
-6. Verify `/up`, sign-in rejection for an unknown account, and upload rejection
-   for a signed-in non-allowlisted account before sharing the URL.
+6. Verify the public root page and `/up`, sign-in rejection for an unknown
+   account, and upload rejection for a signed-in non-allowlisted account before
+   sharing the URL. The root page must not expose private media or workspace
+   routes.
 7. Upload one real video with the owner account. Confirm the database records a
    successful processing run, five ranked clips when the source supports five
    distinct candidates, ready preview artifacts, and playable browser media.

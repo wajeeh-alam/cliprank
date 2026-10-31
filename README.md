@@ -9,6 +9,10 @@ integrations, durable workflow state, and persisted results. A stateless FastAPI
 service performs transcription, candidate generation, media feature extraction,
 and transparent content-readiness ranking behind a versioned JSON contract.
 
+The root page is a public, read-only project overview; recordings, ranked
+results, media, uploads, integrations, and feedback controls remain behind
+authentication and ownership checks.
+
 **Deployment status:** production infrastructure is prepared but not yet
 created. There is no verified live URL until the paid-resource plan is approved
 and a real video passes the live smoke test. See
@@ -209,7 +213,7 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 157 tests, 900 assertions, zero failures;
+- Rails: 158 tests, 908 assertions, zero failures;
 - Python: 42 passed and one optional real-media test skipped when FFmpeg is unavailable;
 - RuboCop: zero offenses across 161 files;
 - Brakeman: zero security warnings.
