@@ -1,5 +1,11 @@
 # ClipRank
 
+**[Open the live recruiter demo](https://wajeeh-alam.github.io/cliprank/)** — a
+zero-cost, static walkthrough with playable clips and sample scores captured
+from a verified real-media run. It needs no visitor API keys and is explicitly
+labeled as sample data rather than live inference. Full production access is
+available by request through [LinkedIn](https://ca.linkedin.com/in/wajeeh-alam).
+
 ClipRank is a human-approved social publishing agent for short-form video. It
 audits an existing 3-60 second edit or repurposes a longer recording into
 distinct 15-60 second candidates, then prepares editable Instagram and LinkedIn
