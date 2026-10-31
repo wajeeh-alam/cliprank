@@ -9,7 +9,7 @@ No production resources have been created yet. Creating the Render services or
 Cloudflare account/bucket can incur charges and requires the repository owner's
 approval.
 
-## Current cost check (October 30, 2026)
+## Current cost check (October 31, 2026)
 
 | Resource | Selected size | Monthly baseline |
 | --- | --- | ---: |
@@ -28,7 +28,7 @@ The application caps each upload at 250 MB and each allowlisted account at
 three uploads per rolling 24 hours, which bounds demo usage but is not a
 spending guarantee. Configure provider budget alerts before sharing the URL.
 
-Sources checked on October 30, 2026:
+Sources checked on October 31, 2026:
 
 - [Render pricing](https://render.com/pricing)
 - [Render compute plans](https://render.com/docs/compute-plans)

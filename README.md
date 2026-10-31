@@ -86,6 +86,10 @@ sample counts and labels fixture data instead of claiming unmeasured lift.
 
 ## Run locally with Docker
 
+Prerequisites are Docker Desktop or Docker Engine with Compose v2, at least
+4 GB of free memory, and roughly 8 GB of free disk for images, model weights,
+and generated media. FFmpeg and Python are included in the containers.
+
 ```sh
 cp .env.example .env
 docker compose up --build
@@ -150,9 +154,11 @@ Useful runtime commands:
 ```sh
 docker compose ps
 docker compose logs -f worker ml
-curl --fail http://localhost:55051/health
-curl --fail http://localhost:55050/up
+curl --fail http://localhost:8000/health
+curl --fail http://localhost:3000/up
 ```
+
+If `.env` assigns custom ports, use those values in the two health checks.
 
 Stop containers while retaining database, media, and model data:
 
@@ -210,6 +216,7 @@ Current verified results:
 - Bundler and Importmap audits: no known vulnerable dependencies;
 - Render Blueprint: valid against Render's current published JSON Schema;
 - production Rails and ML container images: successful builds.
+- fresh-checkout Docker startup from `.env.example`: Rails and ML healthy.
 
 ## End-to-end smoke test
 

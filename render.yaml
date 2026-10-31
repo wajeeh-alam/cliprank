@@ -7,7 +7,6 @@ services:
     dockerContext: ./services/ml
     dockerfilePath: ./services/ml/Dockerfile
     autoDeployTrigger: checksPass
-    maxShutdownDelaySeconds: 300
     disk:
       name: whisper-cache
       mountPath: /var/cache/huggingface
