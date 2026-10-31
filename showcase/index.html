@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="ClipRank is an explainable video ranking pipeline. Explore a transparent sample run from upload to playable, ranked clips.">
+    <meta name="theme-color" content="#10110d">
+    <meta property="og:title" content="ClipRank — explainable video ranking">
+    <meta property="og:description" content="A transparent, human-approved pipeline for turning recordings into ranked, playable clips.">
+    <meta property="og:type" content="website">
+    <title>ClipRank — explainable video ranking</title>
+    <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="ClipRank home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>ClipRank</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#results">Sample results</a>
+        <a href="#architecture">Architecture</a>
+        <a class="nav-source" href="https://github.com/wajeeh-alam/cliprank" target="_blank" rel="noreferrer">Source <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy reveal">
+          <div class="status-pill"><span></span> Interactive sample · no upload required</div>
+          <h1>Video ranking<br>that <em>shows its work.</em></h1>
+          <p class="hero-lede">ClipRank turns a recording into distinct, playable clips, scores the measurable content—not imagined virality—and keeps a human in control.</p>
+          <div class="hero-actions">
+            <button class="button button-primary" id="run-demo" type="button">
+              <span>Run the sample pipeline</span>
+              <span aria-hidden="true">→</span>
+            </button>
+            <a class="button button-quiet" href="#results">Skip to results</a>
+          </div>
+          <p class="cost-note"><span aria-hidden="true">●</span> Static showcase: $0 hosting, no API keys, no analytics or application backend.</p>
+        </div>
+
+        <div class="pipeline-console reveal" aria-label="Sample pipeline status">
+          <div class="console-topbar">
+            <div class="console-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <p>run_02 · synthetic-proof.mp4</p>
+            <span class="console-state" id="console-state">READY</span>
+          </div>
+          <div class="console-preview">
+            <div class="waveform" aria-hidden="true">
+              <i style="--h: 35%"></i><i style="--h: 62%"></i><i style="--h: 43%"></i><i style="--h: 78%"></i><i style="--h: 51%"></i><i style="--h: 89%"></i><i style="--h: 64%"></i><i style="--h: 38%"></i><i style="--h: 72%"></i><i style="--h: 94%"></i><i style="--h: 57%"></i><i style="--h: 82%"></i><i style="--h: 45%"></i><i style="--h: 69%"></i><i style="--h: 34%"></i><i style="--h: 76%"></i><i style="--h: 53%"></i><i style="--h: 88%"></i><i style="--h: 61%"></i><i style="--h: 42%"></i><i style="--h: 79%"></i><i style="--h: 48%"></i><i style="--h: 91%"></i><i style="--h: 58%"></i>
+            </div>
+            <div class="timeline"><span>00:00</span><div><i></i></div><span>00:31</span></div>
+          </div>
+          <ol class="pipeline-stages" id="pipeline-stages">
+            <li data-stage="0"><span class="stage-icon">01</span><div><strong>Transcribe source</strong><small>Faster Whisper · timestamped segments</small></div><b>14</b></li>
+            <li data-stage="1"><span class="stage-icon">02</span><div><strong>Generate candidates</strong><small>Temporal boundaries · deduplicated</small></div><b>5</b></li>
+            <li data-stage="2"><span class="stage-icon">03</span><div><strong>Extract evidence</strong><small>Semantic · audio · visual · structure</small></div><b>32×</b></li>
+            <li data-stage="3"><span class="stage-icon">04</span><div><strong>Rank &amp; render</strong><small>Versioned scores · private artifacts</small></div><b>10</b></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="sample-disclosure reveal" aria-label="Sample mode disclosure">
+        <span class="disclosure-icon" aria-hidden="true">i</span>
+        <div>
+          <strong>This is an honest sample, not live inference.</strong>
+          <p>The clips and scores below were captured from one real local end-to-end run using a synthetic 31.667-second H.264/AAC recording. Nothing you do on this page is uploaded or analyzed.</p>
+        </div>
+        <span class="disclosure-tag">SAMPLE DATA</span>
+      </section>
+
+      <section class="proof" aria-labelledby="proof-title">
+        <div class="section-kicker reveal"><span>01</span> Observed, not estimated</div>
+        <div class="proof-heading reveal">
+          <h2 id="proof-title">One real run.<br><em>Every handoff persisted.</em></h2>
+          <p>The proof run crossed the same boundaries as production: authenticated upload, durable jobs, private media, a versioned ML contract, and browser playback.</p>
+        </div>
+        <dl class="proof-grid reveal">
+          <div><dt>14</dt><dd>timestamped transcript segments</dd></div>
+          <div><dt>5</dt><dd>distinct candidates + feature sets</dd></div>
+          <div><dt>5</dt><dd>immutable ranked scores</dd></div>
+          <div><dt>10</dt><dd>ready MP4 + JPEG artifacts</dd></div>
+        </dl>
+      </section>
+
+      <section class="results" id="results" aria-labelledby="results-title">
+        <div class="section-kicker reveal"><span>02</span> Playable sample output</div>
+        <div class="results-heading reveal">
+          <div>
+            <h2 id="results-title">The ranked cut.</h2>
+            <p>Content-readiness scores on a 0–100 scale. They are not forecasts of views, engagement, or reach.</p>
+          </div>
+          <div class="scorer-badge"><span>SCORER</span><strong>heuristic-1</strong></div>
+        </div>
+
+        <div class="result-stack">
+          <article class="result-card result-card-featured reveal">
+            <div class="rank-rail"><span>#</span><strong>1</strong><small>TOP CUT</small></div>
+            <div class="clip-column">
+              <div class="media-frame">
+                <video controls preload="metadata" poster="assets/rank-1.jpg" aria-label="Play sample ranked clip one">
+                  <source src="assets/rank-1.mp4" type="video/mp4">
+                </video>
+                <span class="sample-watermark">VERIFIED SAMPLE</span>
+                <span class="duration">16.74s</span>
+              </div>
+              <div class="clip-meta"><span>00:13.18—00:29.92</span><span>H.264 · AAC</span></div>
+            </div>
+            <div class="analysis-column">
+              <div class="score-row"><div><span>CONTENT-READINESS</span><strong>47.76</strong><small>/100</small></div><span class="version">features-1</span></div>
+              <h3>Evidence stays attached to the recommendation.</h3>
+              <blockquote>“The final ranking is a transparent content readiness heuristic. Not a promise of views or engagement.”</blockquote>
+              <div class="signal-list">
+                <div><span>Standalone clarity</span><i><b style="--value: 100%"></b></i><strong>100</strong></div>
+                <div><span>Pacing</span><i><b style="--value: 86.27%"></b></i><strong>86</strong></div>
+                <div><span>Delivery</span><i><b style="--value: 48.96%"></b></i><strong>49</strong></div>
+              </div>
+              <div class="evidence-note"><span>+</span><p><strong>Measured strength</strong> — the candidate preserves standalone meaning without surrounding context.</p></div>
+              <div class="evidence-note evidence-note-muted"><span>↗</span><p><strong>Opportunity</strong> — hook strength and early sentence completeness can improve.</p></div>
+            </div>
+          </article>
+
+          <article class="result-card reveal">
+            <div class="rank-rail"><span>#</span><strong>2</strong><small>RUNNER UP</small></div>
+            <div class="clip-column">
+              <div class="media-frame">
+                <video controls preload="metadata" poster="assets/rank-2.jpg" aria-label="Play sample ranked clip two">
+                  <source src="assets/rank-2.mp4" type="video/mp4">
+                </video>
+                <span class="sample-watermark">VERIFIED SAMPLE</span>
+                <span class="duration">13.16s</span>
+              </div>
+              <div class="clip-meta"><span>00:16.76—00:29.92</span><span>H.264 · AAC</span></div>
+            </div>
+            <div class="analysis-column">
+              <div class="score-row"><div><span>CONTENT-READINESS</span><strong>47.52</strong><small>/100</small></div><span class="version">features-1</span></div>
+              <h3>A bounded claim, with the creator in control.</h3>
+              <blockquote>“A creator stays in control, reviews the playable clips, edits the title ideas and decides what gets published.”</blockquote>
+              <div class="signal-list">
+                <div><span>Standalone clarity</span><i><b style="--value: 100%"></b></i><strong>100</strong></div>
+                <div><span>Pacing</span><i><b style="--value: 84.64%"></b></i><strong>85</strong></div>
+                <div><span>Delivery</span><i><b style="--value: 49.92%"></b></i><strong>50</strong></div>
+              </div>
+              <div class="evidence-note"><span>+</span><p><strong>Measured strength</strong> — complete enough to understand as an independent clip.</p></div>
+            </div>
+          </article>
+
+          <article class="result-card result-card-compact reveal">
+            <div class="rank-rail"><span>#</span><strong>3</strong><small>QUICK CUT</small></div>
+            <div class="clip-column">
+              <div class="media-frame">
+                <video controls preload="metadata" poster="assets/rank-3.jpg" aria-label="Play sample ranked clip three">
+                  <source src="assets/rank-3.mp4" type="video/mp4">
+                </video>
+                <span class="sample-watermark">VERIFIED SAMPLE</span>
+                <span class="duration">3.16s</span>
+              </div>
+              <div class="clip-meta"><span>00:26.76—00:29.92</span><span>H.264 · AAC</span></div>
+            </div>
+            <div class="analysis-column">
+              <div class="score-row"><div><span>CONTENT-READINESS</span><strong>47.48</strong><small>/100</small></div><span class="version">features-1</span></div>
+              <h3>The closing thought, isolated.</h3>
+              <blockquote>“Edits the title ideas and decides what gets published.”</blockquote>
+              <div class="signal-list">
+                <div><span>Standalone clarity</span><i><b style="--value: 100%"></b></i><strong>100</strong></div>
+                <div><span>Pacing</span><i><b style="--value: 87.05%"></b></i><strong>87</strong></div>
+                <div><span>Hook</span><i><b style="--value: 13.33%"></b></i><strong>13</strong></div>
+              </div>
+              <div class="evidence-note evidence-note-muted"><span>↗</span><p><strong>Honest weakness</strong> — very short and starts mid-sentence, so the hook score stays low.</p></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="architecture" id="architecture" aria-labelledby="architecture-title">
+        <div class="section-kicker reveal"><span>03</span> Production design</div>
+        <div class="architecture-heading reveal">
+          <h2 id="architecture-title">Durable by default.<br><em>Expensive work stays private.</em></h2>
+          <p>The full application separates the authenticated control plane from bounded media intelligence. Each boundary is versioned, validated, and retry-safe.</p>
+        </div>
+        <div class="architecture-flow reveal" role="img" aria-label="Browser to Rails, PostgreSQL, worker, private FastAPI ML service, and object storage">
+          <div class="arch-node arch-public"><small>PUBLIC</small><strong>Browser</strong><span>Authenticated UI</span></div>
+          <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
+          <div class="arch-node arch-core"><small>CONTROL PLANE</small><strong>Rails</strong><span>Auth · policy · state</span></div>
+          <div class="arch-split">
+            <div><i>↘</i><span>jobs</span></div>
+            <div><i>→</i><span>rows</span></div>
+            <div><i>↗</i><span>media</span></div>
+          </div>
+          <div class="arch-destinations">
+            <div class="arch-node"><small>PRIVATE</small><strong>Solid Queue</strong><span>Idempotent workers</span></div>
+            <div class="arch-node"><small>DURABLE</small><strong>PostgreSQL</strong><span>Locks · barriers</span></div>
+            <div class="arch-node"><small>PRIVATE</small><strong>Object storage</strong><span>Signed playback</span></div>
+          </div>
+          <div class="arch-ml"><span>worker only</span><i>↔</i><div class="arch-node"><small>PRIVATE + TOKEN</small><strong>FastAPI / Whisper</strong><span>FFmpeg · OpenCV · scoring</span></div></div>
+        </div>
+        <div class="principles reveal">
+          <article><span>01</span><h3>Retry-safe</h3><p>Unique keys, row locks, advisory locks, and completion barriers protect every stage.</p></article>
+          <article><span>02</span><h3>Explainable</h3><p>Frozen heuristic weights and measured component evidence travel with every score.</p></article>
+          <article><span>03</span><h3>Shadow is shadow</h3><p>Feedback models record comparisons but cannot reorder clips before explicit gates pass.</p></article>
+          <article><span>04</span><h3>Human-approved</h3><p>Drafts stay editable and nothing is published automatically in the current MVP.</p></article>
+        </div>
+      </section>
+
+      <section class="availability reveal" aria-labelledby="availability-title">
+        <div>
+          <p class="section-kicker"><span>04</span> Availability</p>
+          <h2 id="availability-title">The costly part is intentionally off.</h2>
+        </div>
+        <div class="availability-copy">
+          <p>This public site is a static product walkthrough, so it needs no API keys and creates no surprise compute bill. The full Rails + ML deployment supports real uploads, transcription, background processing, private media, and authenticated playback. Service and storage credentials are configured by the operator—never supplied by visitors.</p>
+          <p><strong>Want to see it running on your own video?</strong> Production access and a live walkthrough are available by request.</p>
+          <div class="contact-row">
+            <a class="button button-primary" href="https://ca.linkedin.com/in/wajeeh-alam" target="_blank" rel="noreferrer">Message Wajeeh on LinkedIn <span aria-hidden="true">↗</span></a>
+            <a class="button button-quiet" href="https://wajeeh.dev" target="_blank" rel="noreferrer">Visit portfolio</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>ClipRank</span></a>
+      <p>Built by <a href="https://wajeeh.dev" target="_blank" rel="noreferrer">Wajeeh Alam</a> · Sample data, honest limits.</p>
+      <a href="https://github.com/wajeeh-alam/cliprank" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </footer>
+
+    <div class="toast" id="demo-toast" role="status" aria-live="polite">Sample pipeline complete — 5 ranked clips, 10 playable artifacts.</div>
+  </body>
+</html>
