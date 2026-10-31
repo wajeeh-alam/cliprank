@@ -77,6 +77,20 @@ class MlClientTest < ActiveSupport::TestCase
     assert_instance_of Ml::Client, client
   end
 
+  test "falls back to the private host when the public base URL is blank" do
+    environment = {
+      "ML_BASE_URL" => "",
+      "ML_HOSTPORT" => "cliprank-ml:8000",
+      "ML_SERVICE_TOKEN" => "secret"
+    }
+
+    ENV.stub(:[], ->(key) { environment[key] }) do
+      client = Ml::Client.new(http_class: FakeHttp)
+
+      assert_instance_of Ml::Client, client
+    end
+  end
+
   test "rejects a response with a mismatched request id" do
     FakeHttp.response = Response.new(
       "200",

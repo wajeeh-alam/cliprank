@@ -58,7 +58,7 @@ module Ml
     # re-raise for Active Job's retry handler.
     class HttpError < RetryableError; end
 
-    def initialize(base_url: ENV["ML_BASE_URL"] || ENV["ML_HOSTPORT"], service_token: ENV["ML_SERVICE_TOKEN"],
+    def initialize(base_url: ENV["ML_BASE_URL"].presence || ENV["ML_HOSTPORT"], service_token: ENV["ML_SERVICE_TOKEN"],
                    open_timeout: ENV.fetch("ML_OPEN_TIMEOUT", DEFAULT_OPEN_TIMEOUT).to_i,
                    read_timeout: ENV.fetch("ML_READ_TIMEOUT", DEFAULT_READ_TIMEOUT).to_i,
                    write_timeout: ENV.fetch("ML_WRITE_TIMEOUT", DEFAULT_WRITE_TIMEOUT).to_i,
