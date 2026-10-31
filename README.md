@@ -209,7 +209,7 @@ docker run --rm \
 
 Current verified results:
 
-- Rails: 156 tests, 899 assertions, zero failures;
+- Rails: 157 tests, 900 assertions, zero failures;
 - Python: 42 passed and one optional real-media test skipped when FFmpeg is unavailable;
 - RuboCop: zero offenses across 161 files;
 - Brakeman: zero security warnings.
