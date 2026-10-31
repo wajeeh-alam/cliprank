@@ -2,7 +2,7 @@ name: Deploy static demo to GitHub Pages
 
 on:
   push:
-    branches: [ wajeeh-alam/cliprank-static-demo ]
+    branches: [ main, wajeeh-alam/cliprank-static-demo ]
     paths:
       - "showcase/**"
       - ".github/workflows/pages-demo.yml"
