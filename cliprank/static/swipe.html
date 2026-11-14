@@ -9,74 +9,73 @@
 <body>
 <nav><a class="on" href="/">Swipe</a><a href="/upload">Upload</a><a href="/stats">Stats</a><span class="count" id="count"></span></nav>
 <main class="swipe-main">
-  <div id="empty" class="card" hidden></div>
-  <div id="repeat" class="repeat" hidden>↻ seen this pair before — answer honestly, it measures your consistency</div>
+  <div id="empty" class="card" hidden>
+    <h2>No clips yet</h2>
+    <p class="muted">Upload a recording. Clips show up here when it's done processing.</p>
+    <a class="btn" href="/upload">Upload</a>
+  </div>
+  <div id="repeat" class="repeat" hidden>You've seen this pair before</div>
   <div id="arena" class="arena" hidden>
     <div class="side">
-      <div class="vwrap" id="wa"><video id="va" playsinline muted loop preload="auto"></video><span class="tag">A</span><span class="snd">🔇 tap</span></div>
+      <div class="vwrap" id="wa"><video id="va" playsinline muted loop preload="auto"></video><span class="tag">A</span><span class="snd">tap for sound</span></div>
       <div class="caption" id="ca"></div>
-      <button class="pick primary" data-choice="a">A is better</button>
+      <button class="pick primary" data-choice="a">A</button>
     </div>
     <div class="side">
-      <div class="vwrap" id="wb"><video id="vb" playsinline muted loop preload="auto"></video><span class="tag">B</span><span class="snd">🔇 tap</span></div>
+      <div class="vwrap" id="wb"><video id="vb" playsinline muted loop preload="auto"></video><span class="tag">B</span><span class="snd">tap for sound</span></div>
       <div class="caption" id="cb"></div>
-      <button class="pick primary" data-choice="b">B is better</button>
+      <button class="pick primary" data-choice="b">B</button>
     </div>
   </div>
   <div class="actions" id="actions" hidden>
-    <button data-choice="neither">Both bad</button>
     <button data-choice="skip">Skip</button>
     <button id="undo">Undo</button>
   </div>
 </main>
 <script>
-let pair = null, shownAt = 0, busy = false;
 const $ = (id) => document.getElementById(id);
-const vids = { a: $("va"), b: $("vb") }, wraps = { a: $("wa"), b: $("wb") };
+const video = { a: $("va"), b: $("vb") }, box = { a: $("wa"), b: $("wb") };
+let pair = null, shownAt = 0, busy = false;
 
-async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
-  if (r.status === 401) { location.reload(); throw new Error("auth"); }
-  if (!r.ok) throw new Error(await r.text());
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} :
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) location.reload();
   return r.json();
 }
 
-function setSound(side) {
+// Only one clip plays sound at a time. Tapping a clip restarts it with sound.
+function sound(side) {
   for (const s of ["a", "b"]) {
-    const loud = s === side && vids[s].muted;
-    vids[s].muted = !loud;
-    wraps[s].classList.toggle("loud", loud);
-    wraps[s].querySelector(".snd").textContent = loud ? "🔊" : "🔇 tap";
-    if (loud) { vids[s].currentTime = 0; vids[s].play(); }
+    const on = s === side && video[s].muted;
+    video[s].muted = !on;
+    box[s].classList.toggle("loud", on);
+    box[s].querySelector(".snd").textContent = on ? "sound on" : "tap for sound";
+    if (on) { video[s].currentTime = 0; video[s].play(); }
   }
 }
 
-async function load() {
+async function next() {
   busy = true;
   const p = await api("/api/pair");
-  if (!p.a) {
-    $("arena").hidden = $("actions").hidden = true;
-    $("empty").hidden = false;
-    $("empty").innerHTML = `<h2>Nothing to swipe yet</h2><p class="muted">${p.reason} Clips appear here once processing finishes.</p><a class="btn" href="/upload">Upload a recording</a>`;
-    setTimeout(load, 5000);
-    return;
-  }
+  const none = !p.a;
+  $("empty").hidden = !none;
+  $("arena").hidden = $("actions").hidden = none;
+  if (none) { setTimeout(next, 5000); return; }
+
   pair = p;
-  $("empty").hidden = true;
-  $("arena").hidden = $("actions").hidden = false;
   $("repeat").hidden = !p.is_repeat;
   for (const s of ["a", "b"]) {
-    const c = p[s];
-    vids[s].poster = c.poster;
-    vids[s].src = c.url;
-    vids[s].muted = true;
-    wraps[s].classList.remove("loud");
-    wraps[s].querySelector(".snd").textContent = "🔇 tap";
-    $("c" + s).textContent = `${((c.end_ms - c.start_ms) / 1000).toFixed(0)}s · ${c.text}`;
-    vids[s].play().catch(() => {});
+    video[s].poster = p[s].poster;
+    video[s].src = p[s].url;
+    video[s].muted = true;
+    box[s].classList.remove("loud");
+    box[s].querySelector(".snd").textContent = "tap for sound";
+    $("c" + s).textContent = `${Math.round((p[s].end_ms - p[s].start_ms) / 1000)}s · ${p[s].text}`;
+    video[s].play().catch(() => {});
   }
-  const portrait = () => vids.a.videoWidth && vids.a.videoWidth < vids.a.videoHeight;
-  vids.a.onloadedmetadata = () => $("arena").classList.toggle("landscape", !portrait());
+  video.a.onloadedmetadata = () =>
+    $("arena").classList.toggle("landscape", video.a.videoWidth > video.a.videoHeight);
   shownAt = performance.now();
   busy = false;
 }
@@ -84,26 +83,22 @@ async function load() {
 async function choose(choice) {
   if (busy || !pair) return;
   busy = true;
-  const body = { a: pair.a.id, b: pair.b.id, choice, is_repeat: pair.is_repeat,
-                 decision_ms: Math.round(performance.now() - shownAt) };
-  const r = await api("/api/swipe", { method: "POST", body: JSON.stringify(body) });
-  $("count").textContent = `${r.decisive} swipes`;
-  if (navigator.vibrate) navigator.vibrate(10);
-  await load();
+  const r = await api("/api/swipe", { a: pair.a.id, b: pair.b.id, choice, is_repeat: pair.is_repeat,
+                                      decision_ms: Math.round(performance.now() - shownAt) });
+  $("count").textContent = `${r.swipes} swipes`;
+  next();
 }
 
-wraps.a.onclick = () => setSound("a");
-wraps.b.onclick = () => setSound("b");
+box.a.onclick = () => sound("a");
+box.b.onclick = () => sound("b");
 document.querySelectorAll("[data-choice]").forEach((b) => b.onclick = () => choose(b.dataset.choice));
-$("undo").onclick = async () => { await api("/api/undo", { method: "POST" }); await load(); };
+$("undo").onclick = async () => { await api("/api/undo", {}); next(); };
 document.addEventListener("keydown", (e) => {
-  const map = { ArrowLeft: "a", ArrowRight: "b", ArrowDown: "neither", " ": "skip" };
-  if (map[e.key]) { e.preventDefault(); choose(map[e.key]); }
-  if (e.key === "1") setSound("a");
-  if (e.key === "2") setSound("b");
+  const key = { ArrowLeft: "a", ArrowRight: "b", " ": "skip" }[e.key];
+  if (key) { e.preventDefault(); choose(key); }
 });
-api("/api/stats").then((s) => $("count").textContent = `${s.counts.decisive} swipes`);
-load();
+api("/api/stats").then((s) => $("count").textContent = `${s.counts.swipes} swipes`);
+next();
 </script>
 </body>
 </html>

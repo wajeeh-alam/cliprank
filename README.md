@@ -1,44 +1,51 @@
 # ClipRank
 
-Teach a model your own taste in short-form video by swiping on your phone.
+I record a long video trying out different hooks and ideas, it gets chopped
+into clips, and I pick the better of two clips on my phone. After a few hundred
+picks it has a model of what I like, and I can check how well it guesses me on
+clips it hasn't seen.
 
-1. **Record** one long take where you try things out: different hooks, retakes, new ideas.
-2. **Upload** it from your phone. ClipRank cuts it into candidate clips at sentence and take boundaries. Every sentence in a take can start a clip, so you also get alternative openings of the same material.
-3. **Swipe**: two clips at a time, pick the better one. After 60 swipes it switches to *active learning* and shows the pairs it's least sure about.
-4. **Stats**: how well the model predicts your picks on swipes it never trained on, compared with dumb baselines and with your own consistency.
+## Setup
 
-Your old posts can be uploaded and labelled good or bad. They're used two ways: as extra training pairs (good beats bad), and as a transfer test. *Does a model trained only on raw-clip swipes rank my good posts above my bad ones?*
+You need ffmpeg and uv:
 
-## How it works
+```bash
+brew install ffmpeg uv
+```
 
-| Step | What happens |
-|---|---|
-| Transcribe | ffmpeg → 16 kHz audio → faster-whisper (`small.en`) with word timestamps |
-| Cut | words → sentences → takes (a pause ≥ 2.5 s); 8–45 s windows inside each take; overlap-deduplicated |
-| Features | transcript and first-12-words embeddings (`bge-small`); CLIP embeddings of 3 hook frames and 5 body frames; duration, speaking rate, time to first word, loudness, silence |
-| Model | Bradley-Terry: `P(A beats B) = σ(w·x_A − w·x_B)`; logistic regression on feature differences, each embedding block PCA'd to 16 dims |
-| Eval | 5-fold accuracy on unseen pairs, accuracy on fully unseen clips, a learning curve, "longer wins" / "faster talking wins" baselines, a self-consistency ceiling (5% of pairs are re-asked), and old-post AUC |
-
-Everything runs locally on your computer. Nothing is uploaded anywhere else.
-
-## Run it
-
-Needs `ffmpeg` (`brew install ffmpeg`) and [`uv`](https://docs.astral.sh/uv/).
+Start it on your computer:
 
 ```bash
 uv run cliprank
 ```
 
-It prints a QR code. Scan it with your phone while on the same Wi-Fi, and add the page to your home screen. The first video takes a few extra minutes because the Whisper, text and image models download (about 1 GB in total).
+It prints a QR code. Scan it with your phone (same Wi-Fi) and it logs you in.
+The first upload is slow because it downloads the models (about 1 GB).
 
-Data lives in `./data/` (gitignored). `CLIPRANK_DATA=/some/path` moves it. `--port` changes the port.
+## Using it
 
-```bash
-uv run pytest
-```
+1. **Upload** → New recording: a ~10 min video of you trying things.
+2. **Upload** → Old posts: your posted videos, marked good or bad.
+3. **Swipe**: tap a clip to hear it, then pick A or B. Skip if you can't decide.
+4. **Stats**: check how it's doing. It retrains every 20 swipes.
 
-## Tips
+## How it works
 
-- A 10-minute session gives roughly 30–60 clips, which is hundreds of possible pairs. Aim for 3+ sessions before taking the accuracy numbers seriously, and record different kinds of attempts in each.
-- Tap a video to hear it (only one plays sound at a time). On a laptop: ← / → pick, ↓ both bad, space skip.
-- If "unseen clips" accuracy sits well below "new pairs", the model is memorizing clips rather than learning taste. You need more variety, not more swipes.
+- **Cutting:** Whisper transcribes the video. Pauses of 2.5 s or more split it
+  into takes. Inside a take, each sentence can start a clip (8–45 s).
+- **Features per clip:** a text embedding of the whole transcript and of the
+  first 12 words, a CLIP image embedding of the first 2 seconds and of the
+  whole clip, plus length, words per second, time before the first word,
+  loudness and silence.
+- **Model:** each clip gets a score. The chance you pick A over B is
+  `sigmoid(score A − score B)` (a Bradley-Terry model). It's fit with logistic
+  regression on the difference between the two clips' features.
+- **Picking pairs:** random at first. After 60 swipes it mostly shows pairs the
+  model is unsure about, since those teach it the most.
+
+Code: [`candidates.py`](cliprank/candidates.py) cuts clips,
+[`pipeline.py`](cliprank/pipeline.py) processes uploads,
+[`model.py`](cliprank/model.py) trains, [`pairs.py`](cliprank/pairs.py) picks
+pairs, and [`server.py`](cliprank/server.py) is the web app.
+
+Tests: `uv run pytest`

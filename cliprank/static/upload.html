@@ -9,13 +9,13 @@
 <main>
   <div class="card">
     <h2>New recording</h2>
-    <p class="muted">A long take where you try things out. It gets cut into clips at sentence and take boundaries, then those clips show up in Swipe.</p>
-    <label class="drop"><input type="file" accept="video/*" id="session">Choose or record a video</label>
+    <p class="muted">Your 10-minute try-things-out video. It gets cut into clips automatically.</p>
+    <label class="drop"><input type="file" accept="video/*" id="session">Choose a video</label>
   </div>
 
   <div class="card">
     <h2>Old posts</h2>
-    <p class="muted">Your already-posted videos. Mark them good or bad; the model learns from good beating bad, and Stats shows whether your swipes predict these labels.</p>
+    <p class="muted">Videos you've already posted. Pick good or bad, then choose the files.</p>
     <div class="row" style="margin-bottom:8px">
       <label><input type="radio" name="label" value="good" checked> Good</label>
       <label><input type="radio" name="label" value="bad"> Bad</label>
@@ -61,7 +61,7 @@ async function uploadAll(files, kind, label) {
     catch (e) { $("ptext").textContent = `Failed on ${f.name}: ${e.message}`; return; }
     refresh();
   }
-  $("ptext").textContent = `Uploaded ${files.length} file(s). Processing runs on your computer.`;
+  $("ptext").textContent = `Uploaded ${files.length} file(s). Processing happens on your computer; you can close this page.`;
 }
 
 $("session").onchange = (e) => uploadAll([...e.target.files], "session", null);

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from cliprank import config, model, pairs
-from cliprank.candidates import Word, generate_windows, sentences_from_words, split_takes
+from cliprank.candidates import Word, make_clips, sentences_from_words, split_takes
 from cliprank.db import DB
 
 
@@ -31,15 +31,15 @@ def test_windows_respect_takes_and_lengths():
     take1, t = words_for(["word " * 10 + "end."] * 6)
     take2, t2 = words_for(["other " * 10 + "end."] * 6, start=t + 5000)
     sents = sentences_from_words(take1 + take2)
-    wins = generate_windows(sents, t2, 8000, 20000, 2500, 50, pad_start_ms=0, pad_end_ms=0)
+    wins = make_clips(sents, t2, 8000, 20000, 2500, 50)
     assert wins
     boundary = t
     for w in wins:
-        assert 8000 <= w.duration_ms <= 20000
-        assert not (w.start_ms < boundary < w.end_ms), "a clip crossed the pause between takes"
+        assert 8000 <= w.duration_ms <= 20000 + 500  # plus edge padding
+        assert not (w.start_ms + 150 < boundary < w.end_ms - 350), "clip crosses two takes"
 
 
-# ---------- model on synthetic preferences ----------
+# Model, on fake clips where the "right" answer is known
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
@@ -53,16 +53,20 @@ def db(tmp_path, monkeypatch):
 def seed_clips(db, n=40, seed=0):
     rng = np.random.default_rng(seed)
     vid = db.run("INSERT INTO videos (kind, filename, path, status) VALUES ('session','x','x','ready')")
-    taste = rng.normal(size=384)
+    # Like real clips: each one varies along a few hidden factors (topic, energy...),
+    # and the embeddings are noisy mixtures of those factors. Taste depends on the factors.
+    project = rng.normal(size=(4, 384))
+    taste = rng.normal(size=4)
     ids, utility = [], {}
     for _ in range(n):
         cid = db.run("INSERT INTO clips (video_id, start_ms, end_ms, text, ready) VALUES (?,0,1000,'t',1)", (vid,))
-        text = rng.normal(size=384).astype(np.float32)
+        factors = rng.normal(size=4) * 3
+        text = (factors @ project + rng.normal(size=384)).astype(np.float32)
         np.savez(config.EMB / f"{cid}.npz", text=text, hook_text=rng.normal(size=384).astype(np.float32),
                  vis=rng.normal(size=512).astype(np.float32), hook_vis=rng.normal(size=512).astype(np.float32),
                  scalars=rng.normal(size=6).astype(np.float32))
         ids.append(cid)
-        utility[cid] = float(text @ taste)
+        utility[cid] = float(factors @ taste)
     return ids, utility
 
 
@@ -74,7 +78,7 @@ def test_model_learns_a_consistent_taste(db):
         db.run("INSERT INTO swipes (a_id, b_id, choice) VALUES (?,?,?)",
                (a, b, "a" if utility[a] > utility[b] else "b"))
     m = model.train(db)
-    assert m["cv_accuracy"] > 0.7
+    assert m["pair_accuracy"] > 0.7 and m["clip_accuracy"] > 0.7
     assert m["n_swipes"] == 300
     scored = db.all("SELECT id, score FROM clips")
     assert all(r["score"] is not None for r in scored)
@@ -86,7 +90,7 @@ def test_self_consistency(db):
     db.run("INSERT INTO swipes (a_id, b_id, choice, is_repeat) VALUES (?,?, 'b', 1)", (ids[1], ids[0]))  # same winner
     db.run("INSERT INTO swipes (a_id, b_id, choice) VALUES (?,?, 'a')", (ids[2], ids[3]))
     db.run("INSERT INTO swipes (a_id, b_id, choice, is_repeat) VALUES (?,?, 'a', 1)", (ids[3], ids[2]))  # flipped
-    rate, n = model.self_consistency(db)
+    rate, n = model.consistency(db)
     assert n == 2 and rate == 0.5
 
 

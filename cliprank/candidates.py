@@ -1,9 +1,11 @@
-"""Split a long "trying things out" recording into candidate clips.
+"""Cuts a long recording into clips using the transcript.
 
-Words are grouped into sentences. A long pause marks the boundary between
-takes, and no clip crosses it. Inside each take, every sentence can start a
-clip, so you get alternative openings for the same material — which is exactly
-what makes the swipes teach the model about hooks.
+1. Words become sentences (split on . ? ! or a 0.7 s pause).
+2. Sentences become takes (split on a pause of 2.5 s or more).
+3. Inside a take, each sentence can start a clip. For each start we keep the
+   shortest and longest clip that fits the length limits, so the same idea
+   shows up with different openings and lengths.
+4. Clips that overlap too much with a kept clip are dropped.
 """
 
 from dataclasses import dataclass
@@ -17,14 +19,7 @@ class Word:
 
 
 @dataclass(frozen=True)
-class Sentence:
-    start_ms: int
-    end_ms: int
-    text: str
-
-
-@dataclass(frozen=True)
-class Window:
+class Span:
     start_ms: int
     end_ms: int
     text: str
@@ -34,27 +29,27 @@ class Window:
         return self.end_ms - self.start_ms
 
 
-def sentences_from_words(words: list[Word], pause_ms: int = 700) -> list[Sentence]:
-    out: list[Sentence] = []
-    cur: list[Word] = []
-
-    def flush():
-        if cur:
-            out.append(Sentence(cur[0].start_ms, cur[-1].end_ms, " ".join(w.text.strip() for w in cur).strip()))
-            cur.clear()
-
-    for i, w in enumerate(words):
+def sentences_from_words(words: list[Word], pause_ms: int = 700) -> list[Span]:
+    out, cur = [], []
+    for w in words:
         if cur and w.start_ms - cur[-1].end_ms >= pause_ms:
-            flush()
+            out.append(_join(cur))
+            cur = []
         cur.append(w)
         if w.text.strip().endswith((".", "?", "!")):
-            flush()
-    flush()
+            out.append(_join(cur))
+            cur = []
+    if cur:
+        out.append(_join(cur))
     return out
 
 
-def split_takes(sentences: list[Sentence], gap_ms: int) -> list[list[Sentence]]:
-    takes: list[list[Sentence]] = []
+def _join(items) -> Span:
+    return Span(items[0].start_ms, items[-1].end_ms, " ".join(i.text.strip() for i in items))
+
+
+def split_takes(sentences: list[Span], gap_ms: int) -> list[list[Span]]:
+    takes = []
     for s in sentences:
         if takes and s.start_ms - takes[-1][-1].end_ms < gap_ms:
             takes[-1].append(s)
@@ -63,50 +58,31 @@ def split_takes(sentences: list[Sentence], gap_ms: int) -> list[list[Sentence]]:
     return takes
 
 
-def _iou(a: Window, b: Window) -> float:
+def overlap(a: Span, b: Span) -> float:
     inter = max(0, min(a.end_ms, b.end_ms) - max(a.start_ms, b.start_ms))
     union = max(a.end_ms, b.end_ms) - min(a.start_ms, b.start_ms)
     return inter / union if union else 0.0
 
 
-def generate_windows(
-    sentences: list[Sentence],
-    duration_ms: int,
-    min_ms: int,
-    max_ms: int,
-    take_gap_ms: int,
-    max_count: int,
-    max_iou: float = 0.75,
-    pad_start_ms: int = 150,
-    pad_end_ms: int = 350,
-) -> list[Window]:
-    raw: list[Window] = []
+def make_clips(sentences, duration_ms, min_ms, max_ms, take_gap_ms, max_count, max_overlap=0.75) -> list[Span]:
+    found = []
     for take in split_takes(sentences, take_gap_ms):
-        take_dur = take[-1].end_ms - take[0].start_ms
-        if take_dur < min_ms:
-            # A short complete take is still a legitimate attempt; keep it if it's not tiny.
-            if take_dur >= min_ms // 2:
-                raw.append(Window(take[0].start_ms, take[-1].end_ms, " ".join(s.text for s in take)))
+        if take[-1].end_ms - take[0].start_ms < min_ms:
+            # Short take: keep it whole unless it's really short.
+            if take[-1].end_ms - take[0].start_ms >= min_ms // 2:
+                found.append(_join(take))
             continue
         for i in range(len(take)):
-            ends = [j for j in range(i, len(take)) if min_ms <= take[j].end_ms - take[i].start_ms <= max_ms]
-            if not ends:
-                continue
-            # Shortest complete thought and longest that fits: two natural edits per opening.
-            for j in {ends[0], ends[-1]}:
-                raw.append(Window(take[i].start_ms, take[j].end_ms, " ".join(s.text for s in take[i:j + 1])))
+            fits = [j for j in range(i, len(take)) if min_ms <= take[j].end_ms - take[i].start_ms <= max_ms]
+            for j in {fits[0], fits[-1]} if fits else ():
+                found.append(_join(take[i:j + 1]))
 
-    # Prefer longer, earlier-starting windows when overlap is too high.
-    raw.sort(key=lambda w: (-w.duration_ms, w.start_ms))
-    kept: list[Window] = []
-    for w in raw:
-        if all(_iou(w, k) <= max_iou for k in kept):
-            kept.append(w)
-        if len(kept) >= max_count:
-            break
+    found.sort(key=lambda c: (-c.duration_ms, c.start_ms))  # longer clips win ties
+    kept = []
+    for c in found:
+        if len(kept) < max_count and all(overlap(c, k) <= max_overlap for k in kept):
+            kept.append(c)
 
-    padded = [
-        Window(max(0, w.start_ms - pad_start_ms), min(duration_ms, w.end_ms + pad_end_ms), w.text)
-        for w in kept
-    ]
-    return sorted(padded, key=lambda w: (w.start_ms, w.end_ms))
+    # A little padding so words aren't clipped at the edges.
+    kept = [Span(max(0, c.start_ms - 150), min(duration_ms, c.end_ms + 350), c.text) for c in kept]
+    return sorted(kept, key=lambda c: c.start_ms)
