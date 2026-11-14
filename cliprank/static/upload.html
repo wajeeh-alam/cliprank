@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Upload · ClipRank</title><link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav><a href="/">Swipe</a><a class="on" href="/upload">Upload</a><a href="/stats">Stats</a></nav>
+<main>
+  <div class="card">
+    <h2>New recording</h2>
+    <p class="muted">A long take where you try things out. It gets cut into clips at sentence and take boundaries, then those clips show up in Swipe.</p>
+    <label class="drop"><input type="file" accept="video/*" id="session">Choose or record a video</label>
+  </div>
+
+  <div class="card">
+    <h2>Old posts</h2>
+    <p class="muted">Your already-posted videos. Mark them good or bad; the model learns from good beating bad, and Stats shows whether your swipes predict these labels.</p>
+    <div class="row" style="margin-bottom:8px">
+      <label><input type="radio" name="label" value="good" checked> Good</label>
+      <label><input type="radio" name="label" value="bad"> Bad</label>
+    </div>
+    <label class="drop"><input type="file" accept="video/*" id="library" multiple>Choose one or more videos</label>
+  </div>
+
+  <div class="card" id="progress" hidden>
+    <div id="ptext" class="muted"></div>
+    <progress id="pbar" max="1" value="0"></progress>
+  </div>
+
+  <div class="card">
+    <h2>Videos</h2>
+    <div class="vlist" id="list"><span class="muted">Nothing uploaded yet.</span></div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function send(file, kind, label, i, n) {
+  return new Promise((resolve, reject) => {
+    const q = new URLSearchParams({ filename: file.name, kind });
+    if (label) q.set("label", label);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload?" + q);
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      $("pbar").value = e.loaded / e.total;
+      $("ptext").textContent = `Uploading ${i}/${n}: ${file.name} — ${(e.loaded / 1e6).toFixed(0)} / ${(e.total / 1e6).toFixed(0)} MB`;
+    };
+    xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(xhr.responseText));
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(file);
+  });
+}
+
+async function uploadAll(files, kind, label) {
+  $("progress").hidden = false;
+  let i = 0;
+  for (const f of files) {
+    try { await send(f, kind, label, ++i, files.length); }
+    catch (e) { $("ptext").textContent = `Failed on ${f.name}: ${e.message}`; return; }
+    refresh();
+  }
+  $("ptext").textContent = `Uploaded ${files.length} file(s). Processing runs on your computer.`;
+}
+
+$("session").onchange = (e) => uploadAll([...e.target.files], "session", null);
+$("library").onchange = (e) => uploadAll([...e.target.files], "library",
+  document.querySelector("input[name=label]:checked").value);
+
+async function act(path, method = "POST", body) {
+  await fetch(path, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
+  refresh();
+}
+
+async function refresh() {
+  const r = await fetch("/api/videos");
+  if (r.status === 401) return location.reload();
+  const vids = await r.json();
+  if (!vids.length) return;
+  $("list").innerHTML = "";
+  for (const v of vids) {
+    const el = document.createElement("div");
+    el.className = "item";
+    const status = v.status === "ready" ? `${v.n_clips} clip${v.n_clips === 1 ? "" : "s"}`
+      : v.status === "failed" ? `<span class="err">failed: ${v.error || ""}</span>`
+      : `${v.status}${v.progress ? " · " + v.progress : ""}`;
+    const label = v.kind === "library"
+      ? `<button data-l="good" class="pill ${v.label === "good" ? "good" : ""}">good</button><button data-l="bad" class="pill ${v.label === "bad" ? "bad" : ""}">bad</button>`
+      : `<span class="pill">session</span>`;
+    el.innerHTML = `<div class="name"><div></div><div class="muted" style="font-size:12px">${status}</div></div>${label}
+      ${v.status === "failed" ? '<button data-retry>Retry</button>' : ""}<button data-del title="Delete">✕</button>`;
+    el.querySelector(".name div").textContent = v.filename;
+    el.querySelectorAll("[data-l]").forEach((b) => b.onclick = () => act(`/api/videos/${v.id}/label`, "POST", { label: b.dataset.l }));
+    el.querySelector("[data-retry]")?.addEventListener("click", () => act(`/api/videos/${v.id}/retry`));
+    el.querySelector("[data-del]").onclick = () => confirm(`Delete ${v.filename} and its clips and swipes?`) && act(`/api/videos/${v.id}`, "DELETE");
+    $("list").appendChild(el);
+  }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

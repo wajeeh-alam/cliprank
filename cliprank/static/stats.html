@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stats · ClipRank</title><link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav><a href="/">Swipe</a><a href="/upload">Upload</a><a class="on" href="/stats">Stats</a></nav>
+<main>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2>Your taste model</h2><button id="train">Retrain now</button></div>
+    <div class="grid" id="counts"></div>
+    <p class="muted" id="status"></p>
+  </div>
+  <div class="card"><h2>Does it predict you?</h2><div class="bars" id="bars"><span class="muted">Needs at least 20 swipes.</span></div>
+    <p class="muted" style="font-size:12px">Accuracy at guessing which of two clips you'll pick, on swipes it didn't train on. "Your consistency" is how often you agree with yourself on repeated pairs — no model can beat that.</p></div>
+  <div class="card"><h2>Learning curve</h2><div class="bars" id="curve"></div>
+    <p class="muted" style="font-size:12px">Still climbing at 100%? More swipes will help.</p></div>
+  <div class="card"><h2>Top clips by your model</h2><div id="top"></div></div>
+  <div class="card"><h2>Bottom clips</h2><div id="bottom"></div></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const pct = (x) => x == null ? "—" : (x * 100).toFixed(0) + "%";
+
+function bar(label, value, base = false) {
+  const w = value == null ? 0 : Math.max(0, Math.min(1, value)) * 100;
+  return `<div class="bar"><span>${label}</span><div class="track"><div class="fill ${base ? "base" : ""}" style="width:${w}%"></div></div><b>${pct(value)}</b></div>`;
+}
+
+function clips(list) {
+  if (!list.length) return '<span class="muted">No scores yet.</span>';
+  return list.map((c) => `<div class="clipcard"><a href="/media/clip/${c.id}"><img src="/media/thumb/${c.id}" loading="lazy"></a>
+    <div class="t">${c.kind === "library" ? `<span class="pill ${c.label || ""}">old post${c.label ? " · " + c.label : ""}</span> ` : ""}${escape(c.text).slice(0, 160)}</div>
+    <span class="muted">${c.score.toFixed(2)}</span></div>`).join("");
+}
+const escape = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+async function refresh() {
+  const r = await fetch("/api/stats");
+  if (r.status === 401) return location.reload();
+  const s = await r.json(), m = s.metrics;
+  $("counts").innerHTML = [
+    ["swipes", s.counts.decisive], ["clips", s.counts.clips],
+    ["good old posts", s.counts.lib_good], ["bad old posts", s.counts.lib_bad],
+  ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+  $("status").textContent = s.training ? "Training…" : s.train_error ? "Training failed: " + s.train_error
+    : m ? `Last trained on ${m.n_swipes} swipes + ${m.n_library_pairs} old-post pairs (C=${m.C}).` : "Not trained yet.";
+  if (m) {
+    $("bars").innerHTML =
+      bar("Model · new pairs", m.cv_accuracy) +
+      bar("Model · unseen clips", m.unseen_clip_accuracy) +
+      bar("Longer clip wins", m.baseline_longer_wins, true) +
+      bar("Faster talking wins", m.baseline_faster_talking_wins, true) +
+      bar("Coin flip", 0.5, true) +
+      bar(`Your consistency (${m.n_repeats})`, m.self_consistency, true) +
+      bar("Old posts AUC", m.library_auc_from_swipes);
+    $("curve").innerHTML = Object.entries(m.learning_curve)
+      .map(([f, a]) => bar(`${Math.round(f * m.n_swipes)} swipes`, a)).join("");
+  }
+  $("top").innerHTML = clips(s.top);
+  $("bottom").innerHTML = clips(s.bottom);
+}
+$("train").onclick = async () => { await fetch("/api/train", { method: "POST" }); setTimeout(refresh, 500); };
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
