@@ -8,58 +8,58 @@
 <nav><a href="/">Swipe</a><a href="/upload">Upload</a><a class="on" href="/stats">Stats</a></nav>
 <main>
   <div class="card">
-    <div class="row" style="justify-content:space-between"><h2>Your taste model</h2><button id="train">Retrain now</button></div>
+    <div class="row" style="justify-content:space-between"><h2>Model</h2><button id="train">Retrain</button></div>
     <div class="grid" id="counts"></div>
     <p class="muted" id="status"></p>
   </div>
-  <div class="card"><h2>Does it predict you?</h2><div class="bars" id="bars"><span class="muted">Needs at least 20 swipes.</span></div>
-    <p class="muted" style="font-size:12px">Accuracy at guessing which of two clips you'll pick, on swipes it didn't train on. "Your consistency" is how often you agree with yourself on repeated pairs — no model can beat that.</p></div>
-  <div class="card"><h2>Learning curve</h2><div class="bars" id="curve"></div>
-    <p class="muted" style="font-size:12px">Still climbing at 100%? More swipes will help.</p></div>
-  <div class="card"><h2>Top clips by your model</h2><div id="top"></div></div>
-  <div class="card"><h2>Bottom clips</h2><div id="bottom"></div></div>
+  <div class="card">
+    <h2>How well it guesses your pick</h2>
+    <div class="bars" id="bars"><span class="muted">Shows up after 20 swipes.</span></div>
+    <p class="muted small">
+      <b>New clips</b> is the one to watch: it's tested on clips the model never saw during training.
+      <b>Your consistency</b> is how often you pick the same winner when a pair comes back. The model can't beat that.
+      <b>Old posts</b> is how well it separates your good posts from your bad ones (50% = no better than chance).
+    </p>
+  </div>
+  <div class="card">
+    <h2>Accuracy as you swipe</h2>
+    <div class="bars" id="history"></div>
+    <p class="muted small">Still going up? Keep swiping. Flat? Record a new session with different kinds of takes.</p>
+  </div>
+  <div class="card"><h2>What it likes most</h2><div id="top"></div></div>
+  <div class="card"><h2>What it likes least</h2><div id="bottom"></div></div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-const pct = (x) => x == null ? "—" : (x * 100).toFixed(0) + "%";
+const pct = (x) => x == null ? "–" : Math.round(x * 100) + "%";
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-function bar(label, value, base = false) {
-  const w = value == null ? 0 : Math.max(0, Math.min(1, value)) * 100;
-  return `<div class="bar"><span>${label}</span><div class="track"><div class="fill ${base ? "base" : ""}" style="width:${w}%"></div></div><b>${pct(value)}</b></div>`;
-}
+const bar = (label, v, grey) => `<div class="bar"><span>${label}</span><div class="track">
+  <div class="fill ${grey ? "base" : ""}" style="width:${v == null ? 0 : v * 100}%"></div></div><b>${pct(v)}</b></div>`;
 
-function clips(list) {
-  if (!list.length) return '<span class="muted">No scores yet.</span>';
-  return list.map((c) => `<div class="clipcard"><a href="/media/clip/${c.id}"><img src="/media/thumb/${c.id}" loading="lazy"></a>
-    <div class="t">${c.kind === "library" ? `<span class="pill ${c.label || ""}">old post${c.label ? " · " + c.label : ""}</span> ` : ""}${escape(c.text).slice(0, 160)}</div>
-    <span class="muted">${c.score.toFixed(2)}</span></div>`).join("");
-}
-const escape = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+const clipList = (list) => list.length ? list.map((c) => `
+  <div class="clipcard"><a href="/media/clip/${c.id}"><img src="/media/thumb/${c.id}" loading="lazy"></a>
+  <div class="t">${c.kind === "library" ? `<span class="pill ${c.label || ""}">old post${c.label ? ", " + c.label : ""}</span> ` : ""}${esc(c.text.slice(0, 160))}</div></div>`).join("")
+  : '<span class="muted">Nothing yet.</span>';
 
 async function refresh() {
   const r = await fetch("/api/stats");
   if (r.status === 401) return location.reload();
-  const s = await r.json(), m = s.metrics;
-  $("counts").innerHTML = [
-    ["swipes", s.counts.decisive], ["clips", s.counts.clips],
-    ["good old posts", s.counts.lib_good], ["bad old posts", s.counts.lib_bad],
-  ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
-  $("status").textContent = s.training ? "Training…" : s.train_error ? "Training failed: " + s.train_error
-    : m ? `Last trained on ${m.n_swipes} swipes + ${m.n_library_pairs} old-post pairs (C=${m.C}).` : "Not trained yet.";
+  const s = await r.json(), m = s.latest;
+  $("counts").innerHTML = [["swipes", s.counts.swipes], ["clips", s.counts.clips],
+    ["good old posts", s.counts.good], ["bad old posts", s.counts.bad]]
+    .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+  $("status").textContent = s.training ? "Training…" : s.error ? "Training failed: " + s.error
+    : m ? `Last trained on ${m.n_swipes} swipes. Retrains every 20.` : "Not trained yet.";
   if (m) {
-    $("bars").innerHTML =
-      bar("Model · new pairs", m.cv_accuracy) +
-      bar("Model · unseen clips", m.unseen_clip_accuracy) +
-      bar("Longer clip wins", m.baseline_longer_wins, true) +
-      bar("Faster talking wins", m.baseline_faster_talking_wins, true) +
-      bar("Coin flip", 0.5, true) +
-      bar(`Your consistency (${m.n_repeats})`, m.self_consistency, true) +
-      bar("Old posts AUC", m.library_auc_from_swipes);
-    $("curve").innerHTML = Object.entries(m.learning_curve)
-      .map(([f, a]) => bar(`${Math.round(f * m.n_swipes)} swipes`, a)).join("");
+    $("bars").innerHTML = bar("New clips", m.clip_accuracy) + bar("New pairs", m.pair_accuracy)
+      + bar("Longer clip wins", m.longer_wins, true) + bar("Coin flip", 0.5, true)
+      + bar(`Your consistency`, m.consistency, true) + bar("Old posts", m.old_posts_auc);
+    $("history").innerHTML = s.history.filter((h) => h.clip_accuracy != null).slice(-8)
+      .map((h) => bar(`${h.n_swipes} swipes`, h.clip_accuracy)).join("") || '<span class="muted">Needs a few training runs.</span>';
   }
-  $("top").innerHTML = clips(s.top);
-  $("bottom").innerHTML = clips(s.bottom);
+  $("top").innerHTML = clipList(s.top);
+  $("bottom").innerHTML = clipList(s.bottom);
 }
 $("train").onclick = async () => { await fetch("/api/train", { method: "POST" }); setTimeout(refresh, 500); };
 refresh();

@@ -1,10 +1,9 @@
-"""Choose which two clips to show next.
+"""Picks the next two clips to compare.
 
-Early on: random pairs, mostly from the same recording (so you're judging the
-delivery, not the topic), favouring clips you've seen least.
-Once a model exists: active learning — show the pairs the model is least sure
-about, because those answers teach it the most. Some randomness stays in so it
-doesn't only learn about one corner of your clips.
+First 60 swipes: random pairs, favoring clips you've seen the least.
+After that: mostly the pairs the model is least sure about (active learning),
+with 20% random so it keeps seeing everything. 5% of the time it re-shows an
+old pair to measure how consistent you are.
 """
 
 import math
@@ -13,69 +12,42 @@ from collections import Counter
 
 from cliprank.db import DB
 
-ACTIVE_AFTER = 60       # decisive swipes before switching to uncertainty sampling
-REPEAT_RATE = 0.05      # re-ask an old pair this often to measure your consistency
-EXPLORE_RATE = 0.2
-SAME_VIDEO_RATE = 0.8
-CANDIDATES = 300
+ACTIVE_AFTER = 60
+REPEAT_RATE = 0.05
+RANDOM_RATE = 0.2
 
 
 def next_pair(db: DB, rng: random.Random | None = None) -> dict | None:
     rng = rng or random.Random()
-    clips = db.all("""SELECT c.id, c.video_id, c.score FROM clips c JOIN videos v ON v.id=c.video_id
-                      WHERE c.ready=1 AND v.kind='session'""")
+    clips = db.all("""SELECT c.id, c.score FROM clips c JOIN videos v ON v.id = c.video_id
+                      WHERE c.ready = 1 AND v.kind = 'session'""")
     if len(clips) < 2:
         return None
 
-    history = db.all("SELECT a_id, b_id, choice, is_repeat FROM swipes ORDER BY id")
-    decisive = [h for h in history if h["choice"] in ("a", "b")]
-    seen_pairs = {tuple(sorted((h["a_id"], h["b_id"]))) for h in history}
-    shown = Counter()
-    for h in history:
-        shown[h["a_id"]] += 1
-        shown[h["b_id"]] += 1
+    history = db.all("SELECT a_id, b_id, choice FROM swipes ORDER BY id")
+    decided = [h for h in history if h["choice"] in ("a", "b")]
 
-    # Repeat an old (not too recent) decisive pair, with sides flipped.
-    if len(decisive) > 30 and rng.random() < REPEAT_RATE:
-        old = rng.choice(decisive[:-20])
+    if len(decided) > 30 and rng.random() < REPEAT_RATE:
+        old = rng.choice(decided[:-20])  # not one you just saw
         return {"a": old["b_id"], "b": old["a_id"], "is_repeat": True}
 
-    by_id = {c["id"]: c for c in clips}
-    by_video: dict[int, list[int]] = {}
-    for c in clips:
-        by_video.setdefault(c["video_id"], []).append(c["id"])
+    seen = {frozenset((h["a_id"], h["b_id"])) for h in history}
+    shown = Counter(c for h in history for c in (h["a_id"], h["b_id"]))
+    options = []
+    for _ in range(300):
+        a, b = rng.sample(clips, 2)
+        if frozenset((a["id"], b["id"])) not in seen:
+            options.append((a, b))
+    if not options:  # you've seen every pair; start repeating
+        options = [tuple(rng.sample(clips, 2))]
 
-    def sample_pair():
-        if rng.random() < SAME_VIDEO_RATE:
-            pool = [v for v in by_video.values() if len(v) >= 2]
-            if pool:
-                return tuple(rng.sample(rng.choice(pool), 2))
-        return tuple(c["id"] for c in rng.sample(clips, 2))
-
-    candidates = []
-    for _ in range(CANDIDATES):
-        a, b = sample_pair()
-        if tuple(sorted((a, b))) not in seen_pairs:
-            candidates.append((a, b))
-    if not candidates:  # every pair seen: allow repeats rather than stall
-        candidates = [sample_pair() for _ in range(20)]
-
-    has_scores = all(by_id[c]["score"] is not None for pair in candidates for c in pair)
-    use_active = len(decisive) >= ACTIVE_AFTER and has_scores and rng.random() > EXPLORE_RATE
-
-    def coverage(pair):  # lower is better: prefer rarely shown clips
-        return shown[pair[0]] + shown[pair[1]]
-
-    if use_active:
-        def uncertainty(pair):
-            diff = by_id[pair[0]]["score"] - by_id[pair[1]]["score"]
-            p = 1 / (1 + math.exp(-diff))
-            return abs(p - 0.5) + 0.01 * coverage(pair)
-        a, b = min(candidates, key=uncertainty)
+    scored = all(c["score"] is not None for c in clips)
+    if len(decided) >= ACTIVE_AFTER and scored and rng.random() > RANDOM_RATE:
+        def unsure(pair):  # 0 when the model thinks it's a coin flip
+            p = 1 / (1 + math.exp(-(pair[0]["score"] - pair[1]["score"])))
+            return abs(p - 0.5)
+        a, b = min(options, key=unsure)
     else:
-        lowest = min(coverage(p) for p in candidates)
-        a, b = rng.choice([p for p in candidates if coverage(p) <= lowest + 1])
+        a, b = min(options, key=lambda p: shown[p[0]["id"]] + shown[p[1]["id"]])
 
-    if rng.random() < 0.5:
-        a, b = b, a
-    return {"a": a, "b": b, "is_repeat": False}
+    return {"a": a["id"], "b": b["id"], "is_repeat": False}
