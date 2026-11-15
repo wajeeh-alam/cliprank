@@ -57,7 +57,10 @@ function sound(side) {
 
 async function next() {
   busy = true;
-  const p = await api("/api/pair");
+  show(await api("/api/pair"));
+}
+
+function show(p) {
   const none = !p.a;
   $("empty").hidden = !none;
   $("arena").hidden = $("actions").hidden = none;
@@ -92,7 +95,13 @@ async function choose(choice) {
 box.a.onclick = () => sound("a");
 box.b.onclick = () => sound("b");
 document.querySelectorAll("[data-choice]").forEach((b) => b.onclick = () => choose(b.dataset.choice));
-$("undo").onclick = async () => { await api("/api/undo", {}); next(); };
+$("undo").onclick = async () => {
+  if (busy) return;
+  busy = true;
+  const r = await api("/api/undo", {});
+  $("count").textContent = `${r.swipes} swipes`;
+  r.a ? show(r) : next();
+};
 document.addEventListener("keydown", (e) => {
   const key = { ArrowLeft: "a", ArrowRight: "b", " ": "skip" }[e.key];
   if (key) { e.preventDefault(); choose(key); }
