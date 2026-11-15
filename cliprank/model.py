@@ -20,8 +20,8 @@ from sklearn.preprocessing import StandardScaler
 from cliprank import config
 from cliprank.db import DB
 
-EMBEDDINGS = ["text", "hook_text", "vis", "hook_vis"]
-PCA_DIMS = 16          # each embedding is squashed to this many numbers
+EMBEDDINGS = ["text", "hook_text", "screen_text", "vis", "hook_vis"]
+PCA_DIMS = 8           # each embedding is squashed to this many numbers
 C = 0.1                # regularization; lower = simpler model
 OLD_POST_WEIGHT = 0.3  # an old-post pair counts less than a real swipe
 
@@ -45,7 +45,7 @@ def load_features(clip_ids: list[int]) -> dict[str, np.ndarray]:
 
 def build_matrix(feats: dict[str, np.ndarray]) -> np.ndarray:
     # Embeddings have 384-512 numbers each. With ~1000 swipes that's too many
-    # to learn weights for, so PCA keeps the 16 directions that vary most.
+    # to learn weights for, so PCA keeps the 8 directions that vary most.
     n = len(feats["scalars"])
     parts = []
     for k in EMBEDDINGS:

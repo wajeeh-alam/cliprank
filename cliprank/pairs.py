@@ -20,7 +20,7 @@ RANDOM_RATE = 0.2
 def next_pair(db: DB, rng: random.Random | None = None) -> dict | None:
     rng = rng or random.Random()
     clips = db.all("""SELECT c.id, c.score FROM clips c JOIN videos v ON v.id = c.video_id
-                      WHERE c.ready = 1 AND v.kind = 'session'""")
+                      WHERE c.ready = 1 AND v.kind IN ('session', 'edit')""")
     if len(clips) < 2:
         return None
 

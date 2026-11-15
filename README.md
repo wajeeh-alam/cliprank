@@ -24,8 +24,10 @@ The first upload is slow because it downloads the models (about 1 GB).
 
 ## Using it
 
-1. **Upload** → New recording: a ~10 min video of you trying things.
-2. **Upload** → Old posts: your posted videos, marked good or bad.
+1. **Upload** → New videos:
+   - *Cut into clips*: a long video of you talking and trying things. Pause 3 s between takes.
+   - *Keep each one whole*: finished edits, music + caption videos, memes, photos.
+2. **Upload** → Old posts: things you've posted (videos or photos), marked good or bad.
 3. **Swipe**: tap a clip to hear it, then pick A or B. Skip if you can't decide.
 4. **Stats**: check how it's doing. It retrains every 20 swipes.
 
@@ -33,10 +35,16 @@ The first upload is slow because it downloads the models (about 1 GB).
 
 - **Cutting:** Whisper transcribes the video. Pauses of 2.5 s or more split it
   into takes. Inside a take, each sentence can start a clip (8–45 s).
-- **Features per clip:** a text embedding of the whole transcript and of the
-  first 12 words, a CLIP image embedding of the first 2 seconds and of the
-  whole clip, plus length, words per second, time before the first word,
-  loudness and silence.
+- **Features per clip:**
+  - text embeddings of what's said, of the hook (first 12 words plus on-screen
+    text in the first 2 s), and of all on-screen text (read with the Mac's
+    built-in text recognition)
+  - CLIP image embeddings of the first 2 seconds and of the whole clip
+  - length, words per second, time before the first word, loudness, silence,
+    beat strength and tempo (music), cuts per second, movement, flashes, and
+    number of on-screen words
+- **Updating:** when the features change, clips made earlier get recomputed on
+  start. Your swipes are kept.
 - **Model:** each clip gets a score. The chance you pick A over B is
   `sigmoid(score A − score B)` (a Bradley-Terry model). It's fit with logistic
   regression on the difference between the two clips' features.

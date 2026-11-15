@@ -4,7 +4,7 @@ import threading
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS videos (
   id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL,              -- 'session' (new recording) or 'library' (old post)
+  kind TEXT NOT NULL,              -- 'session' (cut into clips), 'edit' (kept whole) or 'library' (old post)
   label TEXT,                      -- old posts only: 'good' or 'bad'
   filename TEXT NOT NULL,
   path TEXT NOT NULL,

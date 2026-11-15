@@ -26,11 +26,23 @@ def transcribe(samples: np.ndarray) -> list[Word]:
     return [Word(int(w.start * 1000), int(w.end * 1000), w.word) for s in segments for w in (s.words or [])]
 
 
+def read_text(path) -> str:
+    """On-screen text (captions, meme text) in one frame, using the Mac's built-in text recognition."""
+    try:
+        from ocrmac.ocrmac import OCR
+    except ImportError:  # not on a Mac
+        return ""
+    found = OCR(str(path), recognition_level="accurate", confidence_threshold=0.5).recognize()
+    # Top of the screen first, then left to right (the box's y is measured from the bottom).
+    found.sort(key=lambda r: (-round(r[2][1], 1), r[2][0]))
+    return " ".join(r[0] for r in found)
+
+
 def embed_text(texts: list[str]) -> np.ndarray:
     from sentence_transformers import SentenceTransformer
 
     model = _load("text", lambda: SentenceTransformer(config.TEXT_MODEL, device="cpu"))
-    return model.encode([t or "(no speech)" for t in texts], normalize_embeddings=True)
+    return model.encode([t or "(none)" for t in texts], normalize_embeddings=True)
 
 
 def embed_images(paths) -> np.ndarray:
