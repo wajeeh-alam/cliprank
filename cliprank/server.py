@@ -193,8 +193,15 @@ def create_app() -> FastAPI:
 
     @app.post("/api/undo", dependencies=[Depends(auth)])
     def undo():
-        db.run("DELETE FROM swipes WHERE id = (SELECT MAX(id) FROM swipes)")
-        return {}
+        """Delete the last swipe and send that pair back so you can redo it."""
+        last = db.one("SELECT * FROM swipes ORDER BY id DESC LIMIT 1")
+        if last:
+            db.run("DELETE FROM swipes WHERE id = ?", (last["id"],))
+        n = db.one("SELECT COUNT(*) AS n FROM swipes WHERE choice != 'skip'")["n"]
+        if not last:
+            return {"swipes": n, "a": None}
+        return {"swipes": n, "a": clip_info(last["a_id"]), "b": clip_info(last["b_id"]),
+                "is_repeat": bool(last["is_repeat"])}
 
     # Model
     @app.post("/api/train", dependencies=[Depends(auth)])
