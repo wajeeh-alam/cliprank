@@ -63,8 +63,9 @@ def seed_clips(db, n=40, seed=0):
         factors = rng.normal(size=4) * 3
         text = (factors @ project + rng.normal(size=384)).astype(np.float32)
         np.savez(config.EMB / f"{cid}.npz", text=text, hook_text=rng.normal(size=384).astype(np.float32),
+                 screen_text=rng.normal(size=384).astype(np.float32),
                  vis=rng.normal(size=512).astype(np.float32), hook_vis=rng.normal(size=512).astype(np.float32),
-                 scalars=rng.normal(size=6).astype(np.float32))
+                 scalars=rng.normal(size=12).astype(np.float32))
         ids.append(cid)
         utility[cid] = float(factors @ taste)
     return ids, utility

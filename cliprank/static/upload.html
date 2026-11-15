@@ -8,19 +8,24 @@
 <nav><a href="/">Swipe</a><a class="on" href="/upload">Upload</a><a href="/stats">Stats</a></nav>
 <main>
   <div class="card">
-    <h2>New recording</h2>
-    <p class="muted">Your 10-minute try-things-out video. It gets cut into clips automatically.</p>
-    <label class="drop"><input type="file" accept="video/*" id="session">Choose a video</label>
+    <h2>New videos to swipe on</h2>
+    <div style="margin-bottom:8px">
+      <label><input type="radio" name="kind" value="session" checked> Cut into clips</label>
+      <div class="muted small" style="margin:0 0 6px 24px">A long try-things-out video where you talk. Pause 3 s between takes.</div>
+      <label><input type="radio" name="kind" value="edit"> Keep each one whole</label>
+      <div class="muted small" style="margin-left:24px">Finished edits, music + caption videos, memes, photos.</div>
+    </div>
+    <label class="drop"><input type="file" accept="video/*,image/*" id="session" multiple>Choose one or more</label>
   </div>
 
   <div class="card">
     <h2>Old posts</h2>
-    <p class="muted">Videos you've already posted. Pick good or bad, then choose the files.</p>
+    <p class="muted">Things you've already posted. Pick good or bad, then choose the files.</p>
     <div class="row" style="margin-bottom:8px">
       <label><input type="radio" name="label" value="good" checked> Good</label>
       <label><input type="radio" name="label" value="bad"> Bad</label>
     </div>
-    <label class="drop"><input type="file" accept="video/*" id="library" multiple>Choose one or more videos</label>
+    <label class="drop"><input type="file" accept="video/*,image/*" id="library" multiple>Choose one or more</label>
   </div>
 
   <div class="card" id="progress" hidden>
@@ -64,7 +69,8 @@ async function uploadAll(files, kind, label) {
   $("ptext").textContent = `Uploaded ${files.length} file(s). Processing happens on your computer; you can close this page.`;
 }
 
-$("session").onchange = (e) => uploadAll([...e.target.files], "session", null);
+$("session").onchange = (e) => uploadAll([...e.target.files],
+  document.querySelector("input[name=kind]:checked").value, null);
 $("library").onchange = (e) => uploadAll([...e.target.files], "library",
   document.querySelector("input[name=label]:checked").value);
 
@@ -87,7 +93,7 @@ async function refresh() {
       : `${v.status}${v.progress ? " · " + v.progress : ""}`;
     const label = v.kind === "library"
       ? `<button data-l="good" class="pill ${v.label === "good" ? "good" : ""}">good</button><button data-l="bad" class="pill ${v.label === "bad" ? "bad" : ""}">bad</button>`
-      : `<span class="pill">session</span>`;
+      : `<span class="pill">${v.kind === "edit" ? "whole" : "cut"}</span>`;
     el.innerHTML = `<div class="name"><div></div><div class="muted" style="font-size:12px">${status}</div></div>${label}
       ${v.status === "failed" ? '<button data-retry>Retry</button>' : ""}<button data-del title="Delete">✕</button>`;
     el.querySelector(".name div").textContent = v.filename;

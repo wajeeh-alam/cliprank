@@ -119,7 +119,7 @@ def create_app() -> FastAPI:
     # Videos
     @app.post("/api/upload", dependencies=[Depends(auth)])
     async def upload(request: Request, filename: str, kind: str = "session", label: str | None = None):
-        if kind not in ("session", "library") or label not in (None, "", "good", "bad"):
+        if kind not in ("session", "edit", "library") or label not in (None, "", "good", "bad"):
             raise HTTPException(400, "bad kind or label")
         name = secrets.token_hex(4) + "-" + (re.sub(r"[^\w.-]", "_", filename)[-80:] or "video.mp4")
         size = 0

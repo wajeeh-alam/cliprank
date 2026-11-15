@@ -12,6 +12,7 @@ dependencies = [
   "numpy>=1.26",
   "pillow>=10",
   "qrcode>=7.4",
+  "ocrmac>=1.0.1 ; sys_platform == 'darwin'",
 ]
 
 [dependency-groups]
