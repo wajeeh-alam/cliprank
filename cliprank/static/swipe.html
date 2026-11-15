@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f0f10">
+<title>ClipRank</title><link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav><a class="on" href="/">Swipe</a><a href="/upload">Upload</a><a href="/stats">Stats</a><span class="count" id="count"></span></nav>
+<main class="swipe-main">
+  <div id="empty" class="card" hidden>
+    <h2>No clips yet</h2>
+    <p class="muted">Upload a recording. Clips show up here when it's done processing.</p>
+    <a class="btn" href="/upload">Upload</a>
+  </div>
+  <div id="repeat" class="repeat" hidden>You've seen this pair before</div>
+  <div id="arena" class="arena" hidden>
+    <div class="side">
+      <div class="vwrap" id="wa"><video id="va" playsinline muted loop preload="auto"></video><span class="tag">A</span><span class="snd">tap for sound</span></div>
+      <div class="caption" id="ca"></div>
+      <button class="pick primary" data-choice="a">A</button>
+    </div>
+    <div class="side">
+      <div class="vwrap" id="wb"><video id="vb" playsinline muted loop preload="auto"></video><span class="tag">B</span><span class="snd">tap for sound</span></div>
+      <div class="caption" id="cb"></div>
+      <button class="pick primary" data-choice="b">B</button>
+    </div>
+  </div>
+  <div class="actions" id="actions" hidden>
+    <button data-choice="skip">Skip</button>
+    <button id="undo">Undo</button>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const video = { a: $("va"), b: $("vb") }, box = { a: $("wa"), b: $("wb") };
+let pair = null, shownAt = 0, busy = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} :
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) location.reload();
+  return r.json();
+}
+
+// Only one clip plays sound at a time. Tapping a clip restarts it with sound.
+function sound(side) {
+  for (const s of ["a", "b"]) {
+    const on = s === side && video[s].muted;
+    video[s].muted = !on;
+    box[s].classList.toggle("loud", on);
+    box[s].querySelector(".snd").textContent = on ? "sound on" : "tap for sound";
+    if (on) { video[s].currentTime = 0; video[s].play(); }
+  }
+}
+
+async function next() {
+  busy = true;
+  show(await api("/api/pair"));
+}
+
+function show(p) {
+  const none = !p.a;
+  $("empty").hidden = !none;
+  $("arena").hidden = $("actions").hidden = none;
+  if (none) { setTimeout(next, 5000); return; }
+
+  pair = p;
+  $("repeat").hidden = !p.is_repeat;
+  for (const s of ["a", "b"]) {
+    video[s].poster = p[s].poster;
+    video[s].src = p[s].url;
+    video[s].muted = true;
+    box[s].classList.remove("loud");
+    box[s].querySelector(".snd").textContent = "tap for sound";
+    $("c" + s).textContent = `${Math.round((p[s].end_ms - p[s].start_ms) / 1000)}s · ${p[s].text}`;
+    video[s].play().catch(() => {});
+  }
+  video.a.onloadedmetadata = () =>
+    $("arena").classList.toggle("landscape", video.a.videoWidth > video.a.videoHeight);
+  shownAt = performance.now();
+  busy = false;
+}
+
+async function choose(choice) {
+  if (busy || !pair) return;
+  busy = true;
+  const r = await api("/api/swipe", { a: pair.a.id, b: pair.b.id, choice, is_repeat: pair.is_repeat,
+                                      decision_ms: Math.round(performance.now() - shownAt) });
+  $("count").textContent = `${r.swipes} swipes`;
+  next();
+}
+
+box.a.onclick = () => sound("a");
+box.b.onclick = () => sound("b");
+document.querySelectorAll("[data-choice]").forEach((b) => b.onclick = () => choose(b.dataset.choice));
+$("undo").onclick = async () => {
+  if (busy) return;
+  busy = true;
+  const r = await api("/api/undo", {});
+  $("count").textContent = `${r.swipes} swipes`;
+  r.a ? show(r) : next();
+};
+document.addEventListener("keydown", (e) => {
+  const key = { ArrowLeft: "a", ArrowRight: "b", " ": "skip" }[e.key];
+  if (key) { e.preventDefault(); choose(key); }
+});
+api("/api/stats").then((s) => $("count").textContent = `${s.counts.swipes} swipes`);
+next();
+</script>
+</body>
+</html>
