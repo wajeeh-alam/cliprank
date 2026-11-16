@@ -12,13 +12,12 @@ import traceback
 
 import numpy as np
 
-from cliprank import config, media, ml_models
+from cliprank import config, media, ml_models, model
 from cliprank.candidates import Span, Word, make_clips, sentences_from_words
 from cliprank.db import DB
 
 log = logging.getLogger("cliprank")
 
-FEATURES_VERSION = 2  # bump when features change; old clips get recomputed on start
 # Order of the numbers in each clip's "scalars" array.
 SCALARS = ["duration_s", "words_per_s", "first_word_delay_s", "loudness", "loudness_var", "silence",
            "beat", "tempo", "cuts_per_s", "motion", "flashes_per_s", "screen_words"]
@@ -128,6 +127,16 @@ class Worker:
             self.save_features(cid, said)
             self.db.run("UPDATE clips SET ready = 1 WHERE id = ?", (cid,))
 
+        # Score the new clips with the saved model right away, so they're ranked
+        # (and active learning can use them) before the next retrain.
+        tm = model.load_latest(self.db)
+        if tm:
+            ids = [r["id"] for r in self.db.all("SELECT id FROM clips WHERE video_id = ? ORDER BY id", (vid,))]
+            for cid, s in zip(ids, tm.score(model.load_features(ids))):
+                self.db.run("UPDATE clips SET score = ? WHERE id = ?", (float(s), cid))
+
+        # Only now can its clips be swiped on. If processing restarts before
+        # this line, the clips get deleted and remade, and no swipes are lost.
         self.db.run("UPDATE videos SET status = 'ready', progress = NULL WHERE id = ?", (vid,))
 
     def save_features(self, cid, said: list[Word]):
@@ -160,7 +169,7 @@ class Worker:
             moves["cuts_per_s"], moves["motion"], moves["flashes_per_s"],
             len(screen.split()),
         ]
-        np.savez(emb_path(cid), version=FEATURES_VERSION, text=text, hook_text=hook_text, screen_text=screen_text,
+        np.savez(emb_path(cid), version=config.FEATURES_VERSION, text=text, hook_text=hook_text, screen_text=screen_text,
                  vis=images.mean(axis=0), hook_vis=images[:n_hook].mean(axis=0),
                  scalars=np.array(scalars, dtype=np.float32), screen=screen)
         if screen and not spoken:  # so the swipe page has something to show under the clip
@@ -172,7 +181,7 @@ class Worker:
         for row in self.db.all("SELECT id FROM clips WHERE ready = 1"):
             p = emb_path(row["id"])
             if clip_path(row["id"]).exists() and (not p.exists() or "version" not in np.load(p)
-                                                   or int(np.load(p)["version"]) < FEATURES_VERSION):
+                                                   or int(np.load(p)["version"]) < config.FEATURES_VERSION):
                 stale.append(row["id"])
         for i, cid in enumerate(stale, 1):
             log.info("updating features for old clip %d (%d of %d)", cid, i, len(stale))

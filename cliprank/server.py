@@ -43,7 +43,7 @@ class Trainer:
                 m = model.train(self.db)
                 self.error = None
                 if m:
-                    log.info("retrained on %d swipes, clip accuracy %s", m["n_swipes"], m["clip_accuracy"])
+                    log.info("retrained on %d swipes, new-video accuracy %s", m["n_swipes"], m["new_video_accuracy"])
             except Exception as exc:
                 log.exception("training failed")
                 self.error = str(exc)

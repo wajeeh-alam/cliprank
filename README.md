@@ -43,6 +43,13 @@ The first upload is slow because it downloads the models (about 1 GB).
   - length, words per second, time before the first word, loudness, silence,
     beat strength and tempo (music), cuts per second, movement, flashes, and
     number of on-screen words
+- **Checking it honestly:** "New recordings" accuracy hides whole videos, refits
+  everything without them, then guesses picks inside them. Hiding single clips
+  overstates it because clips from one take overlap and look alike. Repeated
+  pairs stay on the same side of each split, and old posts together count as
+  at most a quarter of your swipes.
+- **Saved model:** each retrain saves the PCA, scaler and weights together
+  (`data/models/`), so new clips are scored as soon as they're processed.
 - **Updating:** when the features change, clips made earlier get recomputed on
   start. Your swipes are kept.
 - **Model:** each clip gets a score. The chance you pick A over B is

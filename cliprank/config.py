@@ -19,6 +19,8 @@ TAKE_GAP_MS = 2_500          # a pause this long starts a new take
 MAX_CLIPS_PER_VIDEO = 60
 OLD_POST_MAX_MS = 90_000     # longer old posts only use their first 90 s
 
+FEATURES_VERSION = 2         # bump when clip features change; old clips get recomputed on start
+
 RETRAIN_EVERY = 20           # swipes
 MIN_PAIRS_TO_TRAIN = 20
 
