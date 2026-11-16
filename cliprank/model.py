@@ -8,7 +8,6 @@ Fitting w is plain logistic regression on (features(A) - features(B)).
 
 import json
 import pickle
-import random
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,7 +22,9 @@ from cliprank.db import DB
 EMBEDDINGS = ["text", "hook_text", "screen_text", "vis", "hook_vis"]
 PCA_DIMS = 8           # each embedding is squashed to this many numbers
 C = 0.1                # regularization; lower = simpler model
-OLD_POST_WEIGHT = 0.3  # an old-post pair counts less than a real swipe
+OLD_POST_WEIGHT = 0.3  # the most one old-post pair can count, vs 1 for a swipe
+OLD_POSTS_SHARE = 0.25 # all old-post pairs together count as at most 25% of your swipes...
+OLD_POSTS_FLOOR = 40   # ...where "your swipes" is at least 40, so they still help at the start
 
 
 @dataclass
@@ -34,6 +35,35 @@ class Pair:
     w: float = 1.0
 
 
+class TasteModel:
+    """Everything needed to score a clip: one PCA per embedding, a scaler, and the weights.
+
+    Saved as one object so a new clip can be scored later with exactly the same
+    transform, and scores don't shift just because the PCA was refit.
+    """
+
+    def __init__(self, feats: dict[str, np.ndarray], rows=None):
+        rows = np.arange(len(feats["scalars"])) if rows is None else np.asarray(rows)
+        self.features_version = config.FEATURES_VERSION
+        self.pcas = {}
+        for k in EMBEDDINGS:
+            dims = min(PCA_DIMS, len(rows) - 1, feats[k].shape[1])
+            self.pcas[k] = PCA(dims, random_state=0).fit(feats[k][rows]) if dims >= 1 else None
+        self.scaler = StandardScaler().fit(self._raw(feats)[rows])
+        self.coef = None
+
+    def _raw(self, feats):
+        n = len(feats["scalars"])
+        parts = [p.transform(feats[k]) if p else np.zeros((n, 1)) for k, p in self.pcas.items()]
+        return np.hstack(parts + [feats["scalars"]])
+
+    def transform(self, feats) -> np.ndarray:
+        return self.scaler.transform(self._raw(feats))
+
+    def score(self, feats) -> np.ndarray:
+        return self.transform(feats) @ self.coef
+
+
 def load_features(clip_ids: list[int]) -> dict[str, np.ndarray]:
     out = {k: [] for k in EMBEDDINGS + ["scalars"]}
     for cid in clip_ids:
@@ -41,18 +71,6 @@ def load_features(clip_ids: list[int]) -> dict[str, np.ndarray]:
         for k in out:
             out[k].append(z[k])
     return {k: np.stack(v) for k, v in out.items()}
-
-
-def build_matrix(feats: dict[str, np.ndarray]) -> np.ndarray:
-    # Embeddings have 384-512 numbers each. With ~1000 swipes that's too many
-    # to learn weights for, so PCA keeps the 8 directions that vary most.
-    n = len(feats["scalars"])
-    parts = []
-    for k in EMBEDDINGS:
-        dims = max(1, min(PCA_DIMS, n - 1))
-        parts.append(PCA(dims, random_state=0).fit_transform(feats[k]) if n > 1 else feats[k][:, :1] * 0)
-    parts.append(feats["scalars"])
-    return StandardScaler().fit_transform(np.hstack(parts))
 
 
 def fit(pairs: list[Pair], X: np.ndarray, idx: dict[int, int]) -> np.ndarray:
@@ -66,41 +84,55 @@ def fit(pairs: list[Pair], X: np.ndarray, idx: dict[int, int]) -> np.ndarray:
     return lr.coef_[0]
 
 
-def accuracy(coef, pairs, X, idx) -> float | None:
-    if not pairs:
-        return None
-    s = X @ coef
-    return float(np.mean([(s[idx[p.a]] > s[idx[p.b]]) == bool(p.y) for p in pairs]))
+def n_correct(scores, pairs, idx) -> int:
+    return sum((scores[idx[p.a]] > scores[idx[p.b]]) == bool(p.y) for p in pairs)
 
 
 def heldout_pair_accuracy(swipes, extra, X, idx, k=5) -> float | None:
-    """5-fold: train on 80% of swipes, guess the other 20%, repeat."""
+    """Guess pairs it hasn't trained on (the clips themselves are known).
+
+    Folds are split by pair, so when a pair was shown twice (a repeat), both
+    swipes land on the same side and the answer can't leak into training.
+    """
     if len(swipes) < 20:
         return None
-    order = np.random.default_rng(0).permutation(len(swipes))
-    accs = []
+    keys = sorted({tuple(sorted((p.a, p.b))) for p in swipes})
+    order = np.random.default_rng(0).permutation(len(keys))
+    fold = {keys[i]: n % k for n, i in enumerate(order)}
+    right = total = 0
     for f in range(k):
-        test = set(order[f::k].tolist())
-        train = [p for i, p in enumerate(swipes) if i not in test]
-        accs.append(accuracy(fit(train + extra, X, idx), [swipes[i] for i in test], X, idx))
-    return float(np.mean(accs))
+        test = [p for p in swipes if fold[tuple(sorted((p.a, p.b)))] == f]
+        train = [p for p in swipes if fold[tuple(sorted((p.a, p.b)))] != f]
+        if test and train:
+            right += n_correct(X @ fit(train + extra, X, idx), test, idx)
+            total += len(test)
+    return right / total if total else None
 
 
-def heldout_clip_accuracy(swipes, extra, X, idx, rounds=10) -> float | None:
-    """Hide a quarter of the clips completely, then guess pairs made only of those.
+def heldout_video_accuracy(swipes, extra, feats, idx, video_of, k=5) -> tuple[float | None, int]:
+    """The number that matters: hide whole videos, then guess picks between their clips.
 
-    This is the number that matters: it's how the model does on clips it has
-    never seen, which is the situation when you record something new.
+    Clips from one recording overlap and look alike, so hiding single clips
+    would leave near-twins in training. Hiding the whole video matches what
+    happens when you upload a new recording. The PCA and scaler are also refit
+    without the hidden videos. Needs swipes on at least 2 videos.
     """
-    clips = sorted({c for p in swipes for c in (p.a, p.b)})
-    accs = []
-    for r in range(rounds):
-        hidden = set(random.Random(r).sample(clips, max(2, len(clips) // 4)))
-        train = [p for p in swipes if p.a not in hidden and p.b not in hidden]
-        test = [p for p in swipes if p.a in hidden and p.b in hidden]
-        if len(train) >= 10 and len(test) >= 3:
-            accs.append(accuracy(fit(train + extra, X, idx), test, X, idx))
-    return float(np.mean(accs)) if accs else None
+    videos = sorted({video_of[c] for p in swipes for c in (p.a, p.b)})
+    if len(videos) < 2:
+        return None, 0
+    order = np.random.default_rng(0).permutation(videos)
+    right = total = 0
+    for f in range(min(k, len(videos))):
+        hidden = set(order[f::k].tolist())
+        test = [p for p in swipes if video_of[p.a] in hidden and video_of[p.b] in hidden]
+        train = [p for p in swipes if video_of[p.a] not in hidden and video_of[p.b] not in hidden]
+        if len(train) < 10 or not test:
+            continue
+        tm = TasteModel(feats, [i for c, i in idx.items() if video_of[c] not in hidden])
+        X = tm.transform(feats)
+        right += n_correct(X @ fit(train + extra, X, idx), test, idx)
+        total += len(test)
+    return (right / total if total else None), total
 
 
 def swipe_pairs(db: DB) -> list[Pair]:
@@ -108,9 +140,18 @@ def swipe_pairs(db: DB) -> list[Pair]:
     return [Pair(r["a_id"], r["b_id"], int(r["choice"] == "a")) for r in rows]
 
 
-def old_posts(db: DB) -> list[dict]:
-    return db.all("""SELECT c.id, v.label FROM clips c JOIN videos v ON v.id = c.video_id
-                     WHERE v.kind = 'library' AND v.label IS NOT NULL AND c.ready = 1""")
+def old_post_pairs(good: list[int], bad: list[int], n_swipes: int) -> list[Pair]:
+    """Every good post beats every bad post, but all of them together are capped.
+
+    20 good x 20 bad = 400 pairs. At full weight they'd outvote your real
+    swipes, so the per-pair weight shrinks to keep their total under
+    OLD_POSTS_SHARE of your swipe count.
+    """
+    n = len(good) * len(bad)
+    if not n:
+        return []
+    w = min(OLD_POST_WEIGHT, OLD_POSTS_SHARE * max(n_swipes, OLD_POSTS_FLOOR) / n)
+    return [Pair(g, b, 1, w) for g in good for b in bad]
 
 
 def consistency(db: DB) -> tuple[float | None, int]:
@@ -127,29 +168,35 @@ def consistency(db: DB) -> tuple[float | None, int]:
 
 
 def train(db: DB) -> dict | None:
-    clip_ids = [r["id"] for r in db.all("SELECT id FROM clips WHERE ready = 1 ORDER BY id")]
+    rows = db.all("""SELECT c.id, c.video_id, v.kind, v.label FROM clips c JOIN videos v ON v.id = c.video_id
+                     WHERE c.ready = 1 AND v.status = 'ready' ORDER BY c.id""")
+    clip_ids = [r["id"] for r in rows]
     idx = {c: i for i, c in enumerate(clip_ids)}
+    video_of = {r["id"]: r["video_id"] for r in rows}
     swipes = [p for p in swipe_pairs(db) if p.a in idx and p.b in idx]
-    posts = [r for r in old_posts(db) if r["id"] in idx]
-    good = [r["id"] for r in posts if r["label"] == "good"]
-    bad = [r["id"] for r in posts if r["label"] == "bad"]
-    post_pairs = [Pair(g, b, 1, OLD_POST_WEIGHT) for g in good for b in bad]
+    good = [r["id"] for r in rows if r["kind"] == "library" and r["label"] == "good"]
+    bad = [r["id"] for r in rows if r["kind"] == "library" and r["label"] == "bad"]
+    post_pairs = old_post_pairs(good, bad, len(swipes))
     if len(swipes) + len(post_pairs) < config.MIN_PAIRS_TO_TRAIN:
         return None
 
     feats = load_features(clip_ids)
-    X = build_matrix(feats)
-    coef = fit(swipes + post_pairs, X, idx)
-    for cid, s in zip(clip_ids, X @ coef):
+    tm = TasteModel(feats)
+    X = tm.transform(feats)
+    tm.coef = fit(swipes + post_pairs, X, idx)
+    for cid, s in zip(clip_ids, X @ tm.coef):
         db.run("UPDATE clips SET score = ? WHERE id = ?", (float(s), cid))
 
     dur = feats["scalars"][:, 0]
     cons, n_repeats = consistency(db)
+    video_acc, n_test = heldout_video_accuracy(swipes, post_pairs, feats, idx, video_of)
     metrics = {
         "n_swipes": len(swipes),
         "n_old_post_pairs": len(post_pairs),
+        "old_post_pair_weight": post_pairs[0].w if post_pairs else None,
+        "new_video_accuracy": video_acc,
+        "n_new_video_test_pairs": n_test,
         "pair_accuracy": heldout_pair_accuracy(swipes, post_pairs, X, idx),
-        "clip_accuracy": heldout_clip_accuracy(swipes, post_pairs, X, idx),
         "longer_wins": float(np.mean([(dur[idx[p.a]] > dur[idx[p.b]]) == bool(p.y) for p in swipes])) if swipes else None,
         "consistency": cons,
         "n_repeats": n_repeats,
@@ -164,6 +211,26 @@ def train(db: DB) -> dict | None:
     mid = db.run("INSERT INTO models (n_pairs, metrics, path) VALUES (?, ?, '')", (len(swipes), json.dumps(metrics)))
     path = config.MODELS / f"model-{mid}.pkl"
     with open(path, "wb") as f:
-        pickle.dump({"clip_ids": clip_ids, "coef": coef, "metrics": metrics}, f)
+        pickle.dump({"model": tm, "clip_ids": clip_ids, "metrics": metrics}, f)
     db.run("UPDATE models SET path = ? WHERE id = ?", (str(path), mid))
     return metrics
+
+
+def load_latest(db: DB) -> TasteModel | None:
+    row = db.one("SELECT path FROM models WHERE path != '' ORDER BY id DESC LIMIT 1")
+    if not row:
+        return None
+    try:
+        with open(row["path"], "rb") as f:
+            tm = pickle.load(f).get("model")
+    except (OSError, pickle.UnpicklingError, AttributeError):
+        return None  # missing file, or saved by an older version
+    if not isinstance(tm, TasteModel) or tm.features_version != config.FEATURES_VERSION:
+        return None
+    return tm
+
+
+def score_clip(db: DB, cid: int) -> float | None:
+    """Score one clip with the saved model, without retraining. Used for brand-new clips."""
+    tm = load_latest(db)
+    return float(tm.score(load_features([cid]))[0]) if tm else None

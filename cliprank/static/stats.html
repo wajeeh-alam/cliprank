@@ -16,7 +16,7 @@
     <h2>How well it guesses your pick</h2>
     <div class="bars" id="bars"><span class="muted">Shows up after 20 swipes.</span></div>
     <p class="muted small">
-      <b>New clips</b> is the one to watch: it's tested on clips the model never saw during training.
+      <b>New recordings</b> is the one to watch: it hides whole videos during training, then guesses your picks inside them, like when you upload something new. It needs swipes on at least 2 videos.
       <b>Your consistency</b> is how often you pick the same winner when a pair comes back. The model can't beat that.
       <b>Old posts</b> is how well it separates your good posts from your bad ones (50% = no better than chance).
     </p>
@@ -52,11 +52,11 @@ async function refresh() {
   $("status").textContent = s.training ? "Training…" : s.error ? "Training failed: " + s.error
     : m ? `Last trained on ${m.n_swipes} swipes. Retrains every 20.` : "Not trained yet.";
   if (m) {
-    $("bars").innerHTML = bar("New clips", m.clip_accuracy) + bar("New pairs", m.pair_accuracy)
+    $("bars").innerHTML = bar("New recordings", m.new_video_accuracy) + bar("New pairs", m.pair_accuracy)
       + bar("Longer clip wins", m.longer_wins, true) + bar("Coin flip", 0.5, true)
       + bar(`Your consistency`, m.consistency, true) + bar("Old posts", m.old_posts_auc);
-    $("history").innerHTML = s.history.filter((h) => h.clip_accuracy != null).slice(-8)
-      .map((h) => bar(`${h.n_swipes} swipes`, h.clip_accuracy)).join("") || '<span class="muted">Needs a few training runs.</span>';
+    $("history").innerHTML = s.history.filter((h) => h.new_video_accuracy != null).slice(-8)
+      .map((h) => bar(`${h.n_swipes} swipes`, h.new_video_accuracy)).join("") || '<span class="muted">Needs a few training runs.</span>';
   }
   $("top").innerHTML = clipList(s.top);
   $("bottom").innerHTML = clipList(s.bottom);
