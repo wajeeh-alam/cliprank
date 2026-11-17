@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Results · ClipRank</title><link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav><a href="/">Swipe</a><a class="on" href="/upload">Upload</a><a href="/stats">Stats</a></nav>
+<main>
+  <div class="card">
+    <h2 id="title">Loading…</h2>
+    <p class="muted small" id="sub"></p>
+  </div>
+  <div id="takes"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const secs = (c) => Math.round((c.end_ms - c.start_ms) / 1000) + "s";
+const at = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+const pct = (c) => c.percentile == null ? "" : `better than ${Math.round(c.percentile * 100)}% of your clips`;
+// The first sentence is the opening line, which is what differs between versions of a take.
+const opening = (c) => esc((c.text.split(/(?<=[.?!])\s/)[0] || "").slice(0, 120));
+
+async function download(a) {
+  const old = a.textContent;
+  a.textContent = "Preparing full quality…";
+  // Make the file first (can take a little while), then download it.
+  const r = await fetch(`/api/clips/${a.dataset.id}/export`, { method: "POST" }).catch(() => null);
+  a.textContent = old;
+  if (r && r.ok) location.href = (await r.json()).url;
+  else alert(r ? (await r.json()).detail : "Couldn't reach your computer.");
+}
+
+function row(c) {
+  return `<div class="clipcard">
+    <a href="${c.url}"><img src="${c.poster}" loading="lazy"></a>
+    <div class="t"><b>${secs(c)}</b> · starts at ${at(c.start_ms)}<br>“${opening(c)}”
+      <div class="muted small">${pct(c)}</div></div>
+    <button class="small" data-href="${c.download}" data-id="${c.id}">Download</button></div>`;
+}
+
+async function load() {
+  const vid = location.pathname.split("/").pop();
+  const r = await fetch(`/api/videos/${vid}/results`);
+  if (r.status === 401) return location.reload();
+  if (!r.ok) { $("title").textContent = "Video not found"; return; }
+  const d = await r.json();
+  $("title").textContent = d.video.filename;
+  const n = d.takes.reduce((s, t) => s + t.clips.length, 0);
+  $("sub").textContent = d.video.status !== "ready" ? `Still ${d.video.status}. Check back soon.`
+    : !d.scored ? `${d.takes.length} takes, ${n} clips. Rankings show up after about 20 swipes; this is recording order for now.`
+    : `${d.takes.length} takes, ${n} clips, best take first. Each take shows its best version; tap "other versions" for different openings and lengths.`;
+
+  $("takes").innerHTML = d.takes.map((t, i) => {
+    const best = t.clips[0], rest = t.clips.slice(1);
+    return `<div class="card">
+      <h2>#${i + 1} · take at ${at(t.start_ms)}</h2>
+      <video src="${best.url}" poster="${best.poster}" controls playsinline preload="none" class="result-video"></video>
+      <p><b>Best version: ${secs(best)}</b>, opening with “${opening(best)}”</p>
+      <p class="muted small">${pct(best)}</p>
+      <button class="primary" data-href="${best.download}" data-id="${best.id}">Download full quality</button>
+      ${rest.length ? `<details><summary class="muted">${rest.length} other version${rest.length > 1 ? "s" : ""}</summary>${rest.map(row).join("")}</details>` : ""}
+    </div>`;
+  }).join("");
+  document.querySelectorAll("[data-href]").forEach((a) => a.onclick = () => download(a));
+}
+load();
+</script>
+</body>
+</html>

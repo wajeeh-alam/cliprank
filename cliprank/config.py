@@ -5,6 +5,7 @@ DATA_DIR = Path(os.environ.get("CLIPRANK_DATA", "data")).resolve()
 UPLOADS = DATA_DIR / "uploads"
 CLIPS = DATA_DIR / "clips"
 FRAMES = DATA_DIR / "frames"
+EXPORTS = DATA_DIR / "exports"       # full-quality downloads
 EMB = DATA_DIR / "emb"
 MODELS = DATA_DIR / "models"
 DB_PATH = DATA_DIR / "cliprank.db"
@@ -17,6 +18,7 @@ CLIP_MIN_MS = 8_000
 CLIP_MAX_MS = 45_000
 TAKE_GAP_MS = 2_500          # a pause this long starts a new take
 MAX_CLIPS_PER_VIDEO = 60
+CLIP_WORKERS = 4             # clips processed at the same time
 OLD_POST_MAX_MS = 90_000     # longer old posts only use their first 90 s
 
 FEATURES_VERSION = 2         # bump when clip features change; old clips get recomputed on start
@@ -26,5 +28,5 @@ MIN_PAIRS_TO_TRAIN = 20
 
 
 def make_dirs():
-    for d in (UPLOADS, CLIPS, FRAMES, EMB, MODELS):
+    for d in (UPLOADS, CLIPS, FRAMES, EMB, MODELS, EXPORTS):
         d.mkdir(parents=True, exist_ok=True)

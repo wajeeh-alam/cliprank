@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS clips (
   start_ms INTEGER NOT NULL,
   end_ms INTEGER NOT NULL,
   text TEXT NOT NULL DEFAULT '',
+  take INTEGER,                    -- which take of the recording it came from
   ready INTEGER NOT NULL DEFAULT 0,
   score REAL                       -- from the latest model
 );
@@ -51,6 +52,14 @@ class DB:
         self.lock = threading.RLock()
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self):
+        # Databases made before a column existed get it added (empty).
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(clips)")}
+        if "take" not in cols:
+            self.conn.execute("ALTER TABLE clips ADD COLUMN take INTEGER")
+            self.conn.commit()
 
     def all(self, sql, args=()):
         with self.lock:

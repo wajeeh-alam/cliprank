@@ -8,7 +8,7 @@
 4. Clips that overlap too much with a kept clip are dropped.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class Span:
     start_ms: int
     end_ms: int
     text: str
+    take: int = 0  # which take (stretch of talking between long pauses) it came from
 
     @property
     def duration_ms(self) -> int:
@@ -66,16 +67,16 @@ def overlap(a: Span, b: Span) -> float:
 
 def make_clips(sentences, duration_ms, min_ms, max_ms, take_gap_ms, max_count, max_overlap=0.75) -> list[Span]:
     found = []
-    for take in split_takes(sentences, take_gap_ms):
+    for t, take in enumerate(split_takes(sentences, take_gap_ms)):
         if take[-1].end_ms - take[0].start_ms < min_ms:
             # Short take: keep it whole unless it's really short.
             if take[-1].end_ms - take[0].start_ms >= min_ms // 2:
-                found.append(_join(take))
+                found.append(replace(_join(take), take=t))
             continue
         for i in range(len(take)):
             fits = [j for j in range(i, len(take)) if min_ms <= take[j].end_ms - take[i].start_ms <= max_ms]
             for j in {fits[0], fits[-1]} if fits else ():
-                found.append(_join(take[i:j + 1]))
+                found.append(replace(_join(take[i:j + 1]), take=t))
 
     found.sort(key=lambda c: (-c.duration_ms, c.start_ms))  # longer clips win ties
     kept = []
@@ -84,5 +85,5 @@ def make_clips(sentences, duration_ms, min_ms, max_ms, take_gap_ms, max_count, m
             kept.append(c)
 
     # A little padding so words aren't clipped at the edges.
-    kept = [Span(max(0, c.start_ms - 150), min(duration_ms, c.end_ms + 350), c.text) for c in kept]
+    kept = [replace(c, start_ms=max(0, c.start_ms - 150), end_ms=min(duration_ms, c.end_ms + 350)) for c in kept]
     return sorted(kept, key=lambda c: c.start_ms)

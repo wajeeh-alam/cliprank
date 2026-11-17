@@ -3,9 +3,9 @@ import random
 import numpy as np
 import pytest
 
-from cliprank import config, model, pairs
+from cliprank import model, pairs
 from cliprank.candidates import Word, make_clips, sentences_from_words, split_takes
-from cliprank.db import DB
+from conftest import seed_clips, swipe_by_taste, write_features
 
 
 def words_for(sentences, start=0, gap=200, word_ms=300):
@@ -40,49 +40,6 @@ def test_windows_respect_takes_and_lengths():
 
 
 # Model, on fake clips where the "right" answer is known
-
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "EMB", tmp_path / "emb")
-    monkeypatch.setattr(config, "MODELS", tmp_path / "models")
-    config.EMB.mkdir()
-    config.MODELS.mkdir()
-    return DB(tmp_path / "t.db")
-
-
-def seed_clips(db, n=40, seed=0, n_videos=8, status="ready"):
-    rng = np.random.default_rng(seed)
-    vids = [db.run("INSERT INTO videos (kind, filename, path, status) VALUES ('session','x','x',?)", (status,))
-            for _ in range(n_videos)]
-    # Like real clips: each one varies along a few hidden factors (topic, energy...),
-    # and the embeddings are noisy mixtures of those factors. Taste depends on the factors.
-    project = rng.normal(size=(4, 384))
-    taste = rng.normal(size=4)
-    ids, utility = [], {}
-    for i in range(n):
-        cid = db.run("INSERT INTO clips (video_id, start_ms, end_ms, text, ready) VALUES (?,0,1000,'t',1)",
-                     (vids[i % n_videos],))
-        factors = rng.normal(size=4) * 3
-        write_features(cid, rng, text=(factors @ project + rng.normal(size=384)).astype(np.float32))
-        ids.append(cid)
-        utility[cid] = float(factors @ taste)
-    return ids, utility
-
-
-def write_features(cid, rng, text=None):
-    np.savez(config.EMB / f"{cid}.npz", version=config.FEATURES_VERSION,
-             text=rng.normal(size=384).astype(np.float32) if text is None else text,
-             hook_text=rng.normal(size=384).astype(np.float32), screen_text=rng.normal(size=384).astype(np.float32),
-             vis=rng.normal(size=512).astype(np.float32), hook_vis=rng.normal(size=512).astype(np.float32),
-             scalars=rng.normal(size=12).astype(np.float32))
-
-
-def swipe_by_taste(db, ids, utility, n=300, seed=0):
-    rng = random.Random(seed)
-    for _ in range(n):
-        a, b = rng.sample(ids, 2)
-        db.run("INSERT INTO swipes (a_id, b_id, choice) VALUES (?,?,?)", (a, b, "a" if utility[a] > utility[b] else "b"))
-
 
 def test_model_learns_a_consistent_taste(db):
     ids, utility = seed_clips(db)

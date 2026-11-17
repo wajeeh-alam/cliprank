@@ -51,6 +51,13 @@ def cut(src: Path, start_ms: int, end_ms: int, out: Path) -> None:
             "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(out))
 
 
+def export(src: Path, start_ms: int, end_ms: int, out: Path) -> None:
+    """A clip at the original resolution and high quality, for posting."""
+    _ffmpeg("-ss", f"{start_ms / 1000:.3f}", "-i", str(src), "-t", f"{(end_ms - start_ms) / 1000:.3f}",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out))
+
+
 def frames(clip: Path, times_s: list[float], out_dir: Path) -> list[Path]:
     # 720 wide so captions are big enough to read.
     out_dir.mkdir(parents=True, exist_ok=True)
