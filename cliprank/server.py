@@ -1,6 +1,7 @@
 """Web server. Runs on your computer; you use it from your phone on the same Wi-Fi."""
 
 import argparse
+import bisect
 import json
 import logging
 import re
@@ -13,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from cliprank import config, model, pairs
+from cliprank import config, media, model, pairs
 from cliprank.db import DB
 from cliprank.pipeline import Worker, clip_path, thumb_path
 
@@ -108,6 +109,10 @@ def create_app() -> FastAPI:
     @app.get("/stats", dependencies=[Depends(auth)])
     def stats_page():
         return FileResponse(STATIC / "stats.html")
+
+    @app.get("/video/{vid}", dependencies=[Depends(auth)])
+    def results_page(vid: int):
+        return FileResponse(STATIC / "results.html")
 
     @app.get("/static/{name}")
     def static(name: str):
@@ -229,12 +234,65 @@ def create_app() -> FastAPI:
             "bottom": db.all(ranked.format("ASC", 5)),
         }
 
+    # Results for one video: its takes, best first, and every version of each take.
+    @app.get("/api/videos/{vid}/results", dependencies=[Depends(auth)])
+    def results(vid: int):
+        video = db.one("SELECT id, kind, filename, status, duration_ms FROM videos WHERE id = ?", (vid,))
+        if not video:
+            raise HTTPException(404)
+        # "Better than X% of your clips", compared with every clip you swipe on.
+        pool = sorted(r["score"] for r in db.all("""SELECT c.score FROM clips c JOIN videos v ON v.id = c.video_id
+                      WHERE c.score IS NOT NULL AND v.kind IN ('session', 'edit') AND v.status = 'ready'"""))
+        takes = {}
+        for c in db.all("SELECT id, start_ms, end_ms, text, take, score FROM clips WHERE video_id = ? AND ready = 1",
+                        (vid,)):
+            c["percentile"] = bisect.bisect_left(pool, c["score"]) / len(pool) if c["score"] is not None else None
+            c["url"], c["poster"], c["download"] = f"/media/clip/{c['id']}", f"/media/thumb/{c['id']}", f"/media/export/{c['id']}"
+            takes.setdefault(c["take"] or 0, []).append(c)
+
+        def best_first(c):
+            return (c["score"] is None, -(c["score"] or 0), c["start_ms"])
+        out = []
+        for t, clips in takes.items():
+            clips.sort(key=best_first)
+            out.append({"take": t, "start_ms": min(c["start_ms"] for c in clips), "clips": clips})
+        out.sort(key=lambda t: best_first(t["clips"][0]))
+        return {"video": video, "scored": bool(pool), "takes": out}
+
     # Media
     @app.get("/media/clip/{cid}", dependencies=[Depends(auth)])
     def media_clip(cid: int):
         if not clip_path(cid).exists():
             raise HTTPException(404)
         return FileResponse(clip_path(cid), media_type="video/mp4")
+
+    def prepare_export(cid):
+        """Cut the clip again from the original upload, at full quality. Cached after the first time."""
+        c = db.one("""SELECT c.start_ms, c.end_ms, v.path, v.filename FROM clips c JOIN videos v ON v.id = c.video_id
+                     WHERE c.id = ?""", (cid,))
+        if not c:
+            raise HTTPException(404)
+        src = config.UPLOADS / c["path"]
+        if src.suffix.lower() in media.IMAGE_TYPES:
+            src = src.with_suffix(".mp4")
+        if not src.exists():
+            raise HTTPException(404, "The original upload is gone, so only the 720p clip is left.")
+        out = config.EXPORTS / f"{cid}.mp4"
+        if not out.exists():
+            tmp = out.with_name(f"{cid}-{secrets.token_hex(4)}.mp4")
+            media.export(src, c["start_ms"], c["end_ms"], tmp)
+            tmp.replace(out)
+        return out, f"{Path(c['filename']).stem}-{c['start_ms'] // 1000}s-{c['end_ms'] // 1000}s.mp4"
+
+    @app.post("/api/clips/{cid}/export", dependencies=[Depends(auth)])
+    def export(cid: int):
+        prepare_export(cid)
+        return {"url": f"/media/export/{cid}"}
+
+    @app.get("/media/export/{cid}", dependencies=[Depends(auth)])
+    def media_export(cid: int):
+        out, name = prepare_export(cid)
+        return FileResponse(out, media_type="video/mp4", filename=name)
 
     @app.get("/media/thumb/{cid}", dependencies=[Depends(auth)])
     def media_thumb(cid: int):
@@ -260,10 +318,20 @@ def main():
     import qrcode
     import uvicorn
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="cliprank: start the app, or `cliprank eval` to compare models")
+    parser.add_argument("command", nargs="?", default="serve", choices=["serve", "eval"])
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+
+    if args.command == "eval":
+        import warnings
+
+        from cliprank import evaluate
+        warnings.filterwarnings("ignore")  # sklearn convergence chatter
+        config.make_dirs()
+        evaluate.run(DB(config.DB_PATH))
+        return
 
     app = create_app()
     url = f"http://{local_ip()}:{args.port}/login?t={app.state.token}"

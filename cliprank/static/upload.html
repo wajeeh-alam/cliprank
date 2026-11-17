@@ -96,7 +96,11 @@ async function refresh() {
       : `<span class="pill">${v.kind === "edit" ? "whole" : "cut"}</span>`;
     el.innerHTML = `<div class="name"><div></div><div class="muted" style="font-size:12px">${status}</div></div>${label}
       ${v.status === "failed" ? '<button data-retry>Retry</button>' : ""}<button data-del title="Delete">✕</button>`;
-    el.querySelector(".name div").textContent = v.filename;
+    const name = el.querySelector(".name div");
+    if (v.status === "ready" && v.kind !== "library") {  // tap a recording to see its ranked takes
+      name.innerHTML = `<a href="/video/${v.id}"></a>`;
+      name.firstChild.textContent = v.filename + " →";
+    } else name.textContent = v.filename;
     el.querySelectorAll("[data-l]").forEach((b) => b.onclick = () => act(`/api/videos/${v.id}/label`, "POST", { label: b.dataset.l }));
     el.querySelector("[data-retry]")?.addEventListener("click", () => act(`/api/videos/${v.id}/retry`));
     el.querySelector("[data-del]").onclick = () => confirm(`Delete ${v.filename} and its clips and swipes?`) && act(`/api/videos/${v.id}`, "DELETE");

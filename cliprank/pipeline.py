@@ -9,6 +9,7 @@ import shutil
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -63,6 +64,7 @@ class Worker:
 
     def _loop(self):
         try:
+            self.fill_missing_takes()
             if self.update_old_clips() and self.on_done:
                 self.on_done()
         except Exception:
@@ -116,16 +118,25 @@ class Worker:
         else:
             spans = [whole]
 
-        for i, span in enumerate(spans, 1):
-            self._status(vid, f"clip {i} of {len(spans)}")
+        todo = []
+        for span in spans:
             said = [Word(w.start_ms - span.start_ms, w.end_ms - span.start_ms, w.text)
                     for w in words if span.start_ms <= w.start_ms < span.end_ms]
             text = span.text or " ".join(w.text.strip() for w in said)
-            cid = self.db.run("INSERT INTO clips (video_id, start_ms, end_ms, text) VALUES (?, ?, ?, ?)",
-                              (vid, span.start_ms, span.end_ms, text))
+            cid = self.db.run("INSERT INTO clips (video_id, start_ms, end_ms, text, take) VALUES (?, ?, ?, ?, ?)",
+                              (vid, span.start_ms, span.end_ms, text, span.take))
+            todo.append((cid, span, said))
+
+        def make(item):
+            cid, span, said = item
             media.cut(src, span.start_ms, span.end_ms, clip_path(cid))
             self.save_features(cid, said)
             self.db.run("UPDATE clips SET ready = 1 WHERE id = ?", (cid,))
+
+        # A few clips at a time: most of the work is ffmpeg, which runs in its own process.
+        with ThreadPoolExecutor(config.CLIP_WORKERS) as pool:
+            for i, _ in enumerate(pool.map(make, todo), 1):
+                self._status(vid, f"clip {i} of {len(todo)}")
 
         # Score the new clips with the saved model right away, so they're ranked
         # (and active learning can use them) before the next retrain.
@@ -175,6 +186,17 @@ class Worker:
         if screen and not spoken:  # so the swipe page has something to show under the clip
             self.db.run("UPDATE clips SET text = ? WHERE id = ? AND text = ''", (f"[on screen] {screen}", cid))
 
+    def fill_missing_takes(self):
+        """Clips made before takes were saved: group them by overlap (clips never cross takes)."""
+        for v in self.db.all("SELECT DISTINCT video_id FROM clips WHERE take IS NULL"):
+            take, end = -1, -1
+            for c in self.db.all("SELECT id, start_ms, end_ms FROM clips WHERE video_id = ? ORDER BY start_ms",
+                                 (v["video_id"],)):
+                if c["start_ms"] >= end:
+                    take += 1
+                end = max(end, c["end_ms"])
+                self.db.run("UPDATE clips SET take = ? WHERE id = ?", (take, c["id"]))
+
     def update_old_clips(self) -> int:
         """Recompute features for clips made by an older version. Keeps the clips and your swipes."""
         stale = []
@@ -193,4 +215,5 @@ class Worker:
             clip_path(row["id"]).unlink(missing_ok=True)
             emb_path(row["id"]).unlink(missing_ok=True)
             shutil.rmtree(config.FRAMES / str(row["id"]), ignore_errors=True)
+            (config.EXPORTS / f"{row['id']}.mp4").unlink(missing_ok=True)
         self.db.run("DELETE FROM clips WHERE video_id = ?", (vid,))

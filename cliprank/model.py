@@ -33,6 +33,22 @@ class Pair:
     b: int
     y: int  # 1 if a won
     w: float = 1.0
+    tie: bool = False  # a skip counted as "about equal"; trained on, never tested on
+
+
+@dataclass(frozen=True)
+class Variant:
+    """Choices about how to build the model. `cliprank eval` compares these on your swipes."""
+    name: str = "current"
+    pca_dims: int | None = PCA_DIMS    # None = use the raw embeddings
+    blocks: tuple = tuple(EMBEDDINGS)  # which embeddings to use
+    scalars: bool = True               # the simple numbers (length, cuts, beat...)
+    C: float = C
+    fast_weight: bool = False          # quick picks count more, slow ones less
+    skips_as_ties: bool = False        # a skip teaches "these two are about equal"
+
+
+DEFAULT = Variant()
 
 
 class TasteModel:
@@ -42,20 +58,27 @@ class TasteModel:
     transform, and scores don't shift just because the PCA was refit.
     """
 
-    def __init__(self, feats: dict[str, np.ndarray], rows=None):
+    def __init__(self, feats: dict[str, np.ndarray], rows=None, variant: Variant = DEFAULT):
         rows = np.arange(len(feats["scalars"])) if rows is None else np.asarray(rows)
         self.features_version = config.FEATURES_VERSION
+        self.variant = variant
         self.pcas = {}
-        for k in EMBEDDINGS:
-            dims = min(PCA_DIMS, len(rows) - 1, feats[k].shape[1])
+        for k in variant.blocks:
+            if variant.pca_dims is None:
+                self.pcas[k] = "raw"
+                continue
+            dims = min(variant.pca_dims, len(rows) - 1, feats[k].shape[1])
             self.pcas[k] = PCA(dims, random_state=0).fit(feats[k][rows]) if dims >= 1 else None
         self.scaler = StandardScaler().fit(self._raw(feats)[rows])
         self.coef = None
 
     def _raw(self, feats):
         n = len(feats["scalars"])
-        parts = [p.transform(feats[k]) if p else np.zeros((n, 1)) for k, p in self.pcas.items()]
-        return np.hstack(parts + [feats["scalars"]])
+        parts = [feats[k] if p == "raw" else p.transform(feats[k]) if p else np.zeros((n, 1))
+                 for k, p in self.pcas.items()]
+        if self.variant.scalars:
+            parts.append(feats["scalars"])
+        return np.hstack(parts)
 
     def transform(self, feats) -> np.ndarray:
         return self.scaler.transform(self._raw(feats))
@@ -73,7 +96,7 @@ def load_features(clip_ids: list[int]) -> dict[str, np.ndarray]:
     return {k: np.stack(v) for k, v in out.items()}
 
 
-def fit(pairs: list[Pair], X: np.ndarray, idx: dict[int, int]) -> np.ndarray:
+def fit(pairs: list[Pair], X: np.ndarray, idx: dict[int, int], C: float = C) -> np.ndarray:
     d = np.array([X[idx[p.a]] - X[idx[p.b]] for p in pairs])
     y = np.array([p.y for p in pairs])
     w = np.array([p.w for p in pairs])
@@ -88,7 +111,7 @@ def n_correct(scores, pairs, idx) -> int:
     return sum((scores[idx[p.a]] > scores[idx[p.b]]) == bool(p.y) for p in pairs)
 
 
-def heldout_pair_accuracy(swipes, extra, X, idx, k=5) -> float | None:
+def heldout_pair_accuracy(swipes, extra, X, idx, k=5, variant: Variant = DEFAULT) -> float | None:
     """Guess pairs it hasn't trained on (the clips themselves are known).
 
     Folds are split by pair, so when a pair was shown twice (a repeat), both
@@ -101,15 +124,16 @@ def heldout_pair_accuracy(swipes, extra, X, idx, k=5) -> float | None:
     fold = {keys[i]: n % k for n, i in enumerate(order)}
     right = total = 0
     for f in range(k):
-        test = [p for p in swipes if fold[tuple(sorted((p.a, p.b)))] == f]
+        test = [p for p in swipes if fold[tuple(sorted((p.a, p.b)))] == f and not p.tie]
         train = [p for p in swipes if fold[tuple(sorted((p.a, p.b)))] != f]
         if test and train:
-            right += n_correct(X @ fit(train + extra, X, idx), test, idx)
+            right += n_correct(X @ fit(train + extra, X, idx, variant.C), test, idx)
             total += len(test)
     return right / total if total else None
 
 
-def heldout_video_accuracy(swipes, extra, feats, idx, video_of, k=5) -> tuple[float | None, int]:
+def heldout_video_accuracy(swipes, extra, feats, idx, video_of, k=5, variant: Variant = DEFAULT,
+                           tested: list | None = None) -> tuple[float | None, int]:
     """The number that matters: hide whole videos, then guess picks between their clips.
 
     Clips from one recording overlap and look alike, so hiding single clips
@@ -124,20 +148,35 @@ def heldout_video_accuracy(swipes, extra, feats, idx, video_of, k=5) -> tuple[fl
     right = total = 0
     for f in range(min(k, len(videos))):
         hidden = set(order[f::k].tolist())
-        test = [p for p in swipes if video_of[p.a] in hidden and video_of[p.b] in hidden]
+        test = [p for p in swipes if video_of[p.a] in hidden and video_of[p.b] in hidden and not p.tie]
         train = [p for p in swipes if video_of[p.a] not in hidden and video_of[p.b] not in hidden]
         if len(train) < 10 or not test:
             continue
-        tm = TasteModel(feats, [i for c, i in idx.items() if video_of[c] not in hidden])
+        tm = TasteModel(feats, [i for c, i in idx.items() if video_of[c] not in hidden], variant)
         X = tm.transform(feats)
-        right += n_correct(X @ fit(train + extra, X, idx), test, idx)
+        s = X @ fit(train + extra, X, idx, variant.C)
+        right += n_correct(s, test, idx)
         total += len(test)
+        if tested is not None:  # (pair, guessed right) for a breakdown in `cliprank eval`
+            tested += [(p, (s[idx[p.a]] > s[idx[p.b]]) == bool(p.y)) for p in test]
     return (right / total if total else None), total
 
 
-def swipe_pairs(db: DB) -> list[Pair]:
-    rows = db.all("SELECT a_id, b_id, choice FROM swipes WHERE choice IN ('a','b') ORDER BY id")
-    return [Pair(r["a_id"], r["b_id"], int(r["choice"] == "a")) for r in rows]
+def swipe_pairs(db: DB, variant: Variant = DEFAULT) -> list[Pair]:
+    rows = db.all("SELECT a_id, b_id, choice, decision_ms FROM swipes ORDER BY id")
+    times = [r["decision_ms"] for r in rows if r["choice"] != "skip" and r["decision_ms"]]
+    median = float(np.median(times)) if times else None
+    out = []
+    for r in rows:
+        if r["choice"] == "skip":
+            if variant.skips_as_ties:  # half a vote each way pulls the two scores together
+                out += [Pair(r["a_id"], r["b_id"], 1, 0.5, True), Pair(r["a_id"], r["b_id"], 0, 0.5, True)]
+            continue
+        w = 1.0
+        if variant.fast_weight and median and r["decision_ms"]:
+            w = float(np.clip(median / r["decision_ms"], 0.5, 2.0))  # twice as fast as usual = twice the weight
+        out.append(Pair(r["a_id"], r["b_id"], int(r["choice"] == "a"), w))
+    return out
 
 
 def old_post_pairs(good: list[int], bad: list[int], n_swipes: int) -> list[Pair]:
@@ -167,51 +206,83 @@ def consistency(db: DB) -> tuple[float | None, int]:
     return (float(np.mean(same)) if same else None), len(same)
 
 
-def train(db: DB) -> dict | None:
-    rows = db.all("""SELECT c.id, c.video_id, v.kind, v.label FROM clips c JOIN videos v ON v.id = c.video_id
-                     WHERE c.ready = 1 AND v.status = 'ready' ORDER BY c.id""")
-    clip_ids = [r["id"] for r in rows]
-    idx = {c: i for i, c in enumerate(clip_ids)}
-    video_of = {r["id"]: r["video_id"] for r in rows}
-    swipes = [p for p in swipe_pairs(db) if p.a in idx and p.b in idx]
-    good = [r["id"] for r in rows if r["kind"] == "library" and r["label"] == "good"]
-    bad = [r["id"] for r in rows if r["kind"] == "library" and r["label"] == "bad"]
-    post_pairs = old_post_pairs(good, bad, len(swipes))
-    if len(swipes) + len(post_pairs) < config.MIN_PAIRS_TO_TRAIN:
-        return None
+@dataclass
+class Data:
+    clip_ids: list
+    idx: dict
+    video_of: dict
+    take_of: dict
+    good: list
+    bad: list
+    feats: dict | None = None
 
-    feats = load_features(clip_ids)
-    tm = TasteModel(feats)
+
+def load_data(db: DB) -> Data:
+    rows = db.all("""SELECT c.id, c.video_id, c.take, v.kind, v.label FROM clips c JOIN videos v ON v.id = c.video_id
+                     WHERE c.ready = 1 AND v.status = 'ready' ORDER BY c.id""")
+    ids = [r["id"] for r in rows]
+    return Data(
+        clip_ids=ids,
+        idx={c: i for i, c in enumerate(ids)},
+        video_of={r["id"]: r["video_id"] for r in rows},
+        take_of={r["id"]: (r["video_id"], r["take"]) for r in rows},
+        good=[r["id"] for r in rows if r["kind"] == "library" and r["label"] == "good"],
+        bad=[r["id"] for r in rows if r["kind"] == "library" and r["label"] == "bad"],
+    )
+
+
+def evaluate(db: DB, data: Data, variant: Variant = DEFAULT, tested: list | None = None):
+    """Fit on everything and measure it. Returns (model, metrics), or (None, None) if there's too little data."""
+    idx = data.idx
+    swipes = [p for p in swipe_pairs(db, variant) if p.a in idx and p.b in idx]
+    decided = [p for p in swipes if not p.tie]
+    post_pairs = old_post_pairs(data.good, data.bad, len(decided))
+    if len(decided) + len(post_pairs) < config.MIN_PAIRS_TO_TRAIN:
+        return None, None
+    if data.feats is None:
+        data.feats = load_features(data.clip_ids)
+    feats = data.feats
+
+    tm = TasteModel(feats, variant=variant)
     X = tm.transform(feats)
-    tm.coef = fit(swipes + post_pairs, X, idx)
-    for cid, s in zip(clip_ids, X @ tm.coef):
-        db.run("UPDATE clips SET score = ? WHERE id = ?", (float(s), cid))
+    tm.coef = fit(swipes + post_pairs, X, idx, variant.C)
 
     dur = feats["scalars"][:, 0]
     cons, n_repeats = consistency(db)
-    video_acc, n_test = heldout_video_accuracy(swipes, post_pairs, feats, idx, video_of)
+    video_acc, n_test = heldout_video_accuracy(swipes, post_pairs, feats, idx, data.video_of,
+                                               variant=variant, tested=tested)
     metrics = {
-        "n_swipes": len(swipes),
+        "n_swipes": len(decided),
         "n_old_post_pairs": len(post_pairs),
         "old_post_pair_weight": post_pairs[0].w if post_pairs else None,
         "new_video_accuracy": video_acc,
         "n_new_video_test_pairs": n_test,
-        "pair_accuracy": heldout_pair_accuracy(swipes, post_pairs, X, idx),
-        "longer_wins": float(np.mean([(dur[idx[p.a]] > dur[idx[p.b]]) == bool(p.y) for p in swipes])) if swipes else None,
+        "pair_accuracy": heldout_pair_accuracy(swipes, post_pairs, X, idx, variant=variant),
+        "longer_wins": float(np.mean([(dur[idx[p.a]] > dur[idx[p.b]]) == bool(p.y) for p in decided])) if decided else None,
         "consistency": cons,
         "n_repeats": n_repeats,
         "old_posts_auc": None,
     }
     # Train on swipes only, then check whether it ranks your good posts above your bad ones.
-    if len(swipes) >= config.MIN_PAIRS_TO_TRAIN and good and bad:
-        s = X @ fit(swipes, X, idx)
-        metrics["old_posts_auc"] = float(roc_auc_score([1] * len(good) + [0] * len(bad),
-                                                       [s[idx[c]] for c in good + bad]))
+    if len(decided) >= config.MIN_PAIRS_TO_TRAIN and data.good and data.bad:
+        s = X @ fit(swipes, X, idx, variant.C)
+        metrics["old_posts_auc"] = float(roc_auc_score([1] * len(data.good) + [0] * len(data.bad),
+                                                       [s[idx[c]] for c in data.good + data.bad]))
+    return tm, metrics
 
-    mid = db.run("INSERT INTO models (n_pairs, metrics, path) VALUES (?, ?, '')", (len(swipes), json.dumps(metrics)))
+
+def train(db: DB) -> dict | None:
+    data = load_data(db)
+    tm, metrics = evaluate(db, data)
+    if tm is None:
+        return None
+    for cid, s in zip(data.clip_ids, tm.score(data.feats)):
+        db.run("UPDATE clips SET score = ? WHERE id = ?", (float(s), cid))
+
+    mid = db.run("INSERT INTO models (n_pairs, metrics, path) VALUES (?, ?, '')", (metrics["n_swipes"], json.dumps(metrics)))
     path = config.MODELS / f"model-{mid}.pkl"
     with open(path, "wb") as f:
-        pickle.dump({"model": tm, "clip_ids": clip_ids, "metrics": metrics}, f)
+        pickle.dump({"model": tm, "clip_ids": data.clip_ids, "metrics": metrics}, f)
     db.run("UPDATE models SET path = ? WHERE id = ?", (str(path), mid))
     return metrics
 

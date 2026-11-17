@@ -30,6 +30,19 @@ The first upload is slow because it downloads the models (about 1 GB).
 2. **Upload** → Old posts: things you've posted (videos or photos), marked good or bad.
 3. **Swipe**: tap a clip to hear it, then pick A or B. Skip if you can't decide.
 4. **Stats**: check how it's doing. It retrains every 20 swipes.
+5. **Results**: tap a recording on the Upload page. Its takes are ranked best
+   first, each showing its best version (opening line and length) and the
+   other versions. Download cuts it again from your original upload at full
+   quality (the swipe clips are 720p).
+
+To compare model choices on the swipes you already have:
+
+```bash
+uv run cliprank eval
+```
+
+It tests each variant the honest way (hides whole videos) and prints how
+far off each number could be by luck, so you only trust real differences.
 
 ## How it works
 
@@ -60,7 +73,8 @@ The first upload is slow because it downloads the models (about 1 GB).
 
 Code: [`candidates.py`](cliprank/candidates.py) cuts clips,
 [`pipeline.py`](cliprank/pipeline.py) processes uploads,
-[`model.py`](cliprank/model.py) trains, [`pairs.py`](cliprank/pairs.py) picks
+[`model.py`](cliprank/model.py) trains,
+[`evaluate.py`](cliprank/evaluate.py) compares variants, [`pairs.py`](cliprank/pairs.py) picks
 pairs, and [`server.py`](cliprank/server.py) is the web app.
 
 Tests: `uv run pytest`
