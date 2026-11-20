@@ -10,6 +10,7 @@ dependencies = [
   "sentence-transformers>=3.0",
   "torch>=2.4",
   "scikit-learn>=1.5",
+  "scipy>=1.11",
   "numpy>=1.26",
   "pillow>=10",
   "qrcode>=7.4",

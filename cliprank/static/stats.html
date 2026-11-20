@@ -5,7 +5,7 @@
 <title>Stats · ClipRank</title><link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<nav><a href="/">Swipe</a><a href="/upload">Upload</a><a class="on" href="/stats">Stats</a></nav>
+<nav><a href="/">Swipe</a><a href="/upload">Upload</a><a href="/posted">Posted</a><a class="on" href="/stats">Stats</a></nav>
 <main>
   <div class="card">
     <div class="row" style="justify-content:space-between"><h2>Model</h2><button id="train">Retrain</button></div>
@@ -20,6 +20,12 @@
       <b>Your consistency</b> is how often you pick the same winner when a pair comes back. The model can't beat that.
       <b>Old posts</b> is how well it separates your good posts from your bad ones (50% = no better than chance).
     </p>
+  </div>
+  <div class="card">
+    <h2>Does your taste predict how posts do?</h2>
+    <div id="perf" class="small"></div>
+    <p class="muted small">Uses a model trained on your swipes only (not your good/bad labels), so it can't cheat.
+      Numbers come from the <a href="/posted">Posted</a> page.</p>
   </div>
   <div class="card">
     <h2>Accuracy as you swipe</h2>
@@ -42,6 +48,35 @@ const clipList = (list) => list.length ? list.map((c) => `
   <div class="t">${c.kind === "library" ? `<span class="pill ${c.label || ""}">old post${c.label ? ", " + c.label : ""}</span> ` : ""}${esc(c.text.slice(0, 160))}</div></div>`).join("")
   : '<span class="muted">Nothing yet.</span>';
 
+const count = (v) => v >= 1e6 ? +(v / 1e6).toFixed(1) + "M" : v >= 1e3 ? +(v / 1e3).toFixed(1) + "K" : String(Math.round(v));
+
+// Turn a rank correlation into a sentence a person can act on.
+function verdict(c, what) {
+  if (c.rho == null) return null;
+  const title = `<b>${what[0].toUpperCase() + what.slice(1)}:</b>`;
+  const num = `correlation ${c.rho.toFixed(2)} across ${c.n} posts`;
+  // Only describe a direction once it's unlikely to be luck (p < 0.05).
+  if (c.p >= 0.05) return `<p>${title} no clear link yet (${num}). A result like this happens by luck
+    ${Math.round(c.p * 100)}% of the time with this many posts, so add more.</p>`;
+  const a = Math.abs(c.rho);
+  const strength = a < 0.3 ? "a weak" : a < 0.5 ? "a moderate" : "a strong";
+  const dir = c.rho > 0 ? "better" : "worse";
+  return `<p>${title} ${strength} link. Clips you rank higher did ${dir} on ${what} (${num}). That's unlikely to be luck.</p>`;
+}
+
+function perfText(p) {
+  if (!p.n_posts) return '<p class="muted">No posts yet. Mark clips as posted on a recording\'s page, or add your old posts on <a href="/posted">Posted</a>.</p>';
+  const out = [];
+  if (!p.has_taste) out.push('<p class="muted">Needs 20 swipes before it can compare.</p>');
+  else if (p.taste.views.rho == null) out.push(`<p class="muted">Add views for at least 5 posts (${p.taste.views.n} so far).</p>`);
+  else out.push(...[verdict(p.taste.views, "views"), verdict(p.taste.watched_pct, "watch time"),
+                    verdict(p.taste.engagement, "engagement")].filter(Boolean));
+  const g = p.labels.good, b = p.labels.bad;
+  if (g.n && b.n) out.push(`<p>Old posts you marked <b>good</b>: median ${count(g.median)} views (${g.n}).
+    Marked <b>bad</b>: median ${count(b.median)} views (${b.n}).</p>`);
+  return out.join("");
+}
+
 async function refresh() {
   const r = await fetch("/api/stats");
   if (r.status === 401) return location.reload();
@@ -58,6 +93,7 @@ async function refresh() {
     $("history").innerHTML = s.history.filter((h) => h.new_video_accuracy != null).slice(-8)
       .map((h) => bar(`${h.n_swipes} swipes`, h.new_video_accuracy)).join("") || '<span class="muted">Needs a few training runs.</span>';
   }
+  $("perf").innerHTML = perfText(s.performance);
   $("top").innerHTML = clipList(s.top);
   $("bottom").innerHTML = clipList(s.bottom);
 }

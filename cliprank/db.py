@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS clips (
   text TEXT NOT NULL DEFAULT '',
   take INTEGER,                    -- which take of the recording it came from
   ready INTEGER NOT NULL DEFAULT 0,
-  score REAL                       -- from the latest model
+  score REAL,                      -- from the latest model
+  swipe_score REAL                 -- from a model trained on swipes only (no good/bad labels)
 );
 CREATE TABLE IF NOT EXISTS swipes (
   id INTEGER PRIMARY KEY,
@@ -32,6 +33,19 @@ CREATE TABLE IF NOT EXISTS swipes (
   decision_ms INTEGER,
   is_repeat INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS posts (     -- clips you actually posted, and how they did
+  id INTEGER PRIMARY KEY,
+  clip_id INTEGER NOT NULL UNIQUE REFERENCES clips(id) ON DELETE CASCADE,
+  posted_on TEXT,                  -- YYYY-MM-DD
+  url TEXT,
+  views INTEGER,
+  likes INTEGER,
+  comments INTEGER,
+  shares INTEGER,
+  saves INTEGER,
+  watched_pct REAL,                -- average % of the video people watched
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS models (
   id INTEGER PRIMARY KEY,
@@ -57,9 +71,11 @@ class DB:
     def _add_missing_columns(self):
         # Databases made before a column existed get it added (empty).
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(clips)")}
-        if "take" not in cols:
-            self.conn.execute("ALTER TABLE clips ADD COLUMN take INTEGER")
-            self.conn.commit()
+        for name in ("take", "swipe_score"):
+            if name not in cols:
+                kind = "INTEGER" if name == "take" else "REAL"
+                self.conn.execute(f"ALTER TABLE clips ADD COLUMN {name} {kind}")
+        self.conn.commit()
 
     def all(self, sql, args=()):
         with self.lock:
