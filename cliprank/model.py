@@ -279,6 +279,14 @@ def train(db: DB) -> dict | None:
     for cid, s in zip(data.clip_ids, tm.score(data.feats)):
         db.run("UPDATE clips SET score = ? WHERE id = ?", (float(s), cid))
 
+    # The same model fit on your swipes alone. Comparing this with how posts did is
+    # fair: your good/bad labels on old posts never went into it.
+    swipes = [p for p in swipe_pairs(db) if p.a in data.idx and p.b in data.idx]
+    if len(swipes) >= config.MIN_PAIRS_TO_TRAIN:
+        X = tm.transform(data.feats)
+        for cid, s in zip(data.clip_ids, X @ fit(swipes, X, data.idx)):
+            db.run("UPDATE clips SET swipe_score = ? WHERE id = ?", (float(s), cid))
+
     mid = db.run("INSERT INTO models (n_pairs, metrics, path) VALUES (?, ?, '')", (metrics["n_swipes"], json.dumps(metrics)))
     path = config.MODELS / f"model-{mid}.pkl"
     with open(path, "wb") as f:

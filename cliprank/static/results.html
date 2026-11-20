@@ -5,7 +5,7 @@
 <title>Results · ClipRank</title><link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<nav><a href="/">Swipe</a><a class="on" href="/upload">Upload</a><a href="/stats">Stats</a></nav>
+<nav><a href="/">Swipe</a><a class="on" href="/upload">Upload</a><a href="/posted">Posted</a><a href="/stats">Stats</a></nav>
 <main>
   <div class="card">
     <h2 id="title">Loading…</h2>
@@ -32,12 +32,17 @@ async function download(a) {
   else alert(r ? (await r.json()).detail : "Couldn't reach your computer.");
 }
 
+// "I posted this" turns into a link to the Posted page, where you add its numbers.
+const postedBtn = (c, cls = "small") => c.post_id ? `<a class="posted" href="/posted">Posted ✓</a>`
+  : `<button class="${cls}" data-post="${c.id}">I posted this</button>`;
+
 function row(c) {
   return `<div class="clipcard">
     <a href="${c.url}"><img src="${c.poster}" loading="lazy"></a>
     <div class="t"><b>${secs(c)}</b> · starts at ${at(c.start_ms)}<br>“${opening(c)}”
       <div class="muted small">${pct(c)}</div></div>
-    <button class="small" data-href="${c.download}" data-id="${c.id}">Download</button></div>`;
+    <div class="row" style="flex-direction:column;align-items:stretch;gap:4px">
+      <button class="small" data-href="${c.download}" data-id="${c.id}">Download</button>${postedBtn(c)}</div></div>`;
 }
 
 async function load() {
@@ -59,11 +64,16 @@ async function load() {
       <video src="${best.url}" poster="${best.poster}" controls playsinline preload="none" class="result-video"></video>
       <p><b>Best version: ${secs(best)}</b>, opening with “${opening(best)}”</p>
       <p class="muted small">${pct(best)}</p>
-      <button class="primary" data-href="${best.download}" data-id="${best.id}">Download full quality</button>
+      <div class="row"><button class="primary" data-href="${best.download}" data-id="${best.id}">Download full quality</button>
+        ${postedBtn(best, "")}</div>
       ${rest.length ? `<details><summary class="muted">${rest.length} other version${rest.length > 1 ? "s" : ""}</summary>${rest.map(row).join("")}</details>` : ""}
     </div>`;
   }).join("");
   document.querySelectorAll("[data-href]").forEach((a) => a.onclick = () => download(a));
+  document.querySelectorAll("[data-post]").forEach((b) => b.onclick = async () => {
+    await fetch(`/api/clips/${b.dataset.post}/post`, { method: "POST" });
+    b.outerHTML = `<a class="posted" href="/posted">Posted ✓ add its numbers</a>`;
+  });
 }
 load();
 </script>

@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from cliprank import config, media, model, pairs
+from cliprank import config, media, model, pairs, performance
 from cliprank.db import DB
 from cliprank.pipeline import Worker, clip_path, thumb_path
 
@@ -63,6 +63,17 @@ class LabelBody(BaseModel):
     label: str | None
 
 
+class PostBody(BaseModel):
+    posted_on: str | None = None
+    url: str | None = None
+    views: int | None = None
+    likes: int | None = None
+    comments: int | None = None
+    shares: int | None = None
+    saves: int | None = None
+    watched_pct: float | None = None
+
+
 def create_app() -> FastAPI:
     config.make_dirs()
     db = DB(config.DB_PATH)
@@ -109,6 +120,10 @@ def create_app() -> FastAPI:
     @app.get("/stats", dependencies=[Depends(auth)])
     def stats_page():
         return FileResponse(STATIC / "stats.html")
+
+    @app.get("/posted", dependencies=[Depends(auth)])
+    def posted_page():
+        return FileResponse(STATIC / "posted.html")
 
     @app.get("/video/{vid}", dependencies=[Depends(auth)])
     def results_page(vid: int):
@@ -232,7 +247,40 @@ def create_app() -> FastAPI:
             "error": trainer.error,
             "top": db.all(ranked.format("DESC", 10)),
             "bottom": db.all(ranked.format("ASC", 5)),
+            "performance": performance.summary(db),
         }
+
+    # Posts: clips you actually posted, with the numbers you type in from the app.
+    @app.get("/api/posts", dependencies=[Depends(auth)])
+    def list_posts():
+        not_added = db.all("""SELECT c.id AS clip_id, v.filename, v.label FROM clips c JOIN videos v ON v.id = c.video_id
+                            WHERE v.kind = 'library' AND v.status = 'ready' AND c.ready = 1
+                              AND c.id NOT IN (SELECT clip_id FROM posts) ORDER BY v.id DESC""")
+        return {"posts": performance.posts(db), "old_posts_not_added": not_added}
+
+    @app.post("/api/clips/{cid}/post", dependencies=[Depends(auth)])
+    def mark_posted(cid: int):
+        if not db.one("SELECT id FROM clips WHERE id = ?", (cid,)):
+            raise HTTPException(404)
+        db.run("INSERT OR IGNORE INTO posts (clip_id) VALUES (?)", (cid,))
+        return db.one("SELECT id FROM posts WHERE clip_id = ?", (cid,))
+
+    @app.patch("/api/posts/{pid}", dependencies=[Depends(auth)])
+    def update_post(pid: int, body: PostBody):
+        fields = body.model_dump(exclude_unset=True)
+        if not db.one("SELECT id FROM posts WHERE id = ?", (pid,)):
+            raise HTTPException(404)
+        if any(v is not None and v < 0 for k, v in fields.items() if k in performance.NUMBERS):
+            raise HTTPException(400, "numbers can't be negative")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)  # keys come from PostBody, not the request
+            db.run(f"UPDATE posts SET {sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*fields.values(), pid))
+        return {}
+
+    @app.delete("/api/posts/{pid}", dependencies=[Depends(auth)])
+    def delete_post(pid: int):
+        db.run("DELETE FROM posts WHERE id = ?", (pid,))
+        return {}
 
     # Results for one video: its takes, best first, and every version of each take.
     @app.get("/api/videos/{vid}/results", dependencies=[Depends(auth)])
@@ -244,8 +292,9 @@ def create_app() -> FastAPI:
         pool = sorted(r["score"] for r in db.all("""SELECT c.score FROM clips c JOIN videos v ON v.id = c.video_id
                       WHERE c.score IS NOT NULL AND v.kind IN ('session', 'edit') AND v.status = 'ready'"""))
         takes = {}
-        for c in db.all("SELECT id, start_ms, end_ms, text, take, score FROM clips WHERE video_id = ? AND ready = 1",
-                        (vid,)):
+        for c in db.all("""SELECT c.id, c.start_ms, c.end_ms, c.text, c.take, c.score, p.id AS post_id
+                           FROM clips c LEFT JOIN posts p ON p.clip_id = c.id
+                           WHERE c.video_id = ? AND c.ready = 1""", (vid,)):
             c["percentile"] = bisect.bisect_left(pool, c["score"]) / len(pool) if c["score"] is not None else None
             c["url"], c["poster"], c["download"] = f"/media/clip/{c['id']}", f"/media/thumb/{c['id']}", f"/media/export/{c['id']}"
             takes.setdefault(c["take"] or 0, []).append(c)
