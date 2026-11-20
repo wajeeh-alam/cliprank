@@ -8,6 +8,7 @@ dependencies = [
   "uvicorn[standard]>=0.30",
   "faster-whisper>=1.1",
   "sentence-transformers>=3.0",
+  "torch>=2.4",
   "scikit-learn>=1.5",
   "numpy>=1.26",
   "pillow>=10",
@@ -17,6 +18,15 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.uv.sources]
+# On Linux (CI, servers) use the CPU-only PyTorch build instead of the multi-GB CUDA one.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 cliprank = "cliprank.server:main"

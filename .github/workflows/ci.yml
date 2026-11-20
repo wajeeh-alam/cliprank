@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install ffmpeg (for the export test)
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run tests
+        run: uv run pytest
