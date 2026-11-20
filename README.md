@@ -34,7 +34,6 @@ The first upload is slow because it downloads the models (about 1 GB).
    first, each showing its best version (opening line and length) and the
    other versions. Download cuts it again from your original upload at full
    quality (the swipe clips are 720p).
-
 6. **Posted**: tap "I posted this" on a clip you posted (or add your old posts),
    then copy in its views, likes, shares, saves and average % watched. Stats
    then shows whether the clips your swipes rank higher actually do better.
@@ -81,7 +80,8 @@ Code: [`candidates.py`](cliprank/candidates.py) cuts clips,
 [`pipeline.py`](cliprank/pipeline.py) processes uploads,
 [`model.py`](cliprank/model.py) trains,
 [`evaluate.py`](cliprank/evaluate.py) compares variants,
-[`performance.py`](cliprank/performance.py) checks taste against real results, [`pairs.py`](cliprank/pairs.py) picks
-pairs, and [`server.py`](cliprank/server.py) is the web app.
+[`performance.py`](cliprank/performance.py) checks taste against real results,
+[`pairs.py`](cliprank/pairs.py) picks pairs, and
+[`server.py`](cliprank/server.py) is the web app.
 
 Tests: `uv run pytest`
